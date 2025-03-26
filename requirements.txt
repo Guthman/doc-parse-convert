@@ -1,0 +1,9 @@
+google-cloud-aiplatform
+pymupdf
+google-api-core
+google-auth
+google-auth-oauthlib
+pillow
+tenacity
+ebooklib
+beautifulsoup4
