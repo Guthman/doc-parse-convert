@@ -72,9 +72,25 @@ html_content = convert_epub_to_html("book.epub")
 
 # Convert EPUB to PDF
 pdf_path = convert_epub_to_pdf("book.epub", "output_folder")
+
+# Convert document pages to images (PNG or JPG)
+from doc_parse_convert.content_extraction import ImageConverter
+
+# Iterate through pages using context manager
+with ImageConverter('document.pdf', format='png') as converter:
+    for page_number, page_data in converter:
+        with open(f'document_page_{page_number+1}.png', 'wb') as f:
+            f.write(page_data)
+
+# Change format to JPG
+converter = ImageConverter('document.pdf', format='jpg')
+for page_number, page_data in converter:
+    with open(f'document_page_{page_number+1}.jpg', 'wb') as f:
+        f.write(page_data)
 ```
 
 ## Examples
 
 See the `examples/` directory for detailed usage examples:
 - `usage_example.ipynb`: Jupyter notebook with example code and configuration
+- `image_converter_example.py`: Example of converting PDF pages to PNG and JPG images
