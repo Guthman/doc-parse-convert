@@ -197,8 +197,109 @@ class ContentExtractor(ABC):
 
 
 class ImageConverter:
-    """Utility class for converting document pages to images."""
-
+    """Utility class for converting document pages to images.
+    
+    This class can be used in two ways:
+    1. As an iterator to get raw image data:
+       ```
+       converter = ImageConverter('document.pdf')
+       for page_number, page in converter:
+           with open(f'document_{page_number}.png', 'wb') as f:
+               f.write(page)
+       ```
+       
+    2. Using the static method to get Vertex AI compatible image objects:
+       ```
+       images = ImageConverter.convert_to_images(document)
+       ```
+    """
+    
+    def __init__(self, file_path: str | Path, format: str = "png", dpi: int = 300):
+        """Initialize the image converter.
+        
+        Args:
+            file_path: Path to the document file to convert
+            format: Image format to use ('png' or 'jpg')
+            dpi: DPI for image conversion
+        """
+        self.file_path = file_path
+        self.format = format.lower()
+        if self.format not in ['png', 'jpg']:
+            raise ValueError("Format must be either 'png' or 'jpg'")
+        self.dpi = dpi
+        self.doc = None
+        self.current_page = 0
+        
+        # Open the document
+        self._open_document()
+    
+    def _open_document(self):
+        """Open the document for conversion."""
+        if self.doc is not None:
+            self.close()
+        
+        try:
+            self.doc = fitz.open(self.file_path)
+            self.current_page = 0
+        except Exception as e:
+            raise ValueError(f"Failed to open document: {str(e)}")
+    
+    def close(self):
+        """Close the document and free resources."""
+        if self.doc:
+            self.doc.close()
+            self.doc = None
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+    
+    def __iter__(self):
+        """Return iterator for the converter."""
+        self.current_page = 0
+        return self
+    
+    def __next__(self):
+        """Get the next page as an image.
+        
+        Returns:
+            Tuple of (page_number, image_data_bytes)
+        """
+        if self.doc is None:
+            raise ValueError("Document not open")
+        
+        if self.current_page >= self.doc.page_count:
+            raise StopIteration
+        
+        page_number = self.current_page
+        page = self.doc.load_page(page_number)
+        pix = page.get_pixmap(dpi=self.dpi)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG' if self.format == 'png' else 'JPEG')
+        img_data = img_byte_arr.getvalue()
+        
+        self.current_page += 1
+        return page_number, img_data
+    
+    def set_format(self, format: str):
+        """Set the image format.
+        
+        Args:
+            format: Image format to use ('png' or 'jpg')
+        """
+        format = format.lower()
+        if format not in ['png', 'jpg']:
+            raise ValueError("Format must be either 'png' or 'jpg'")
+        self.format = format
+        return self
+    
     @staticmethod
     def convert_to_images(document: Any, num_pages: int = 20, start_page: int = 0) -> List[Dict[str, Any]]:
         """Convert document pages to images.
