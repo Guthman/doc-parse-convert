@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING, ForwardRef
 from pathlib import Path
 
 import fitz  # PyMuPDF
@@ -66,7 +66,7 @@ class ProcessingConfig:
     use_application_default_credentials: bool = False
     toc_extraction_strategy: ExtractionStrategy = ExtractionStrategy.NATIVE  # Strategy for table of contents extraction
     content_extraction_strategy: ExtractionStrategy = ExtractionStrategy.NATIVE  # Strategy for chapter content extraction
-    max_pages_for_preview: int = 20  # Default is to only look at first 20 pages
+    max_pages_for_preview: int = 200  # Default is to only look at first 200 pages
     image_quality: int = 300  # DPI for image conversion
 
 
@@ -122,6 +122,558 @@ class Chapter:
     end_page: Optional[int] = None
     level: int = 1
     content: Optional[ChapterContent] = None
+
+
+@dataclass
+class DocumentSection:
+    """Represents a section in a document structure hierarchy with physical and logical page information."""
+    title: str
+    start_page: int  # 0-based physical page index
+    end_page: Optional[int] = None  # 0-based physical page index
+    level: int = 0  # Depth in the document hierarchy (0 for document root, 1 for chapters, etc.)
+    children: List["DocumentSection"] = None  # Subsections
+    logical_start_page: Optional[int] = None  # As displayed in the document (e.g., "Page 1")
+    logical_end_page: Optional[int] = None  # As displayed in the document
+    section_type: Optional[str] = None  # E.g., "chapter", "section", "appendix"
+    identifier: Optional[str] = None  # E.g., "Chapter 1", "Appendix A"
+
+    def __post_init__(self) -> None:
+        if self.children is None:
+            self.children = []
+            
+    def add_child(self, child: "DocumentSection") -> None:
+        """Add a child section to this section."""
+        if self.children is None:
+            self.children = []
+        self.children.append(child)
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the section to a dictionary representation."""
+        result = {
+            "title": self.title,
+            "start_page": self.start_page,
+            "end_page": self.end_page,
+            "level": self.level,
+        }
+        
+        if self.logical_start_page is not None:
+            result["logical_start_page"] = self.logical_start_page
+        if self.logical_end_page is not None:
+            result["logical_end_page"] = self.logical_end_page
+        if self.section_type:
+            result["section_type"] = self.section_type
+        if self.identifier:
+            result["identifier"] = self.identifier
+        if self.children:
+            result["children"] = [child.to_dict() for child in self.children]
+            
+        return result
+
+
+# Create forward reference to DocumentProcessor for type hinting
+if TYPE_CHECKING:
+    from typing import Type
+    DocumentProcessorType = Type['DocumentProcessor']
+else:
+    DocumentProcessorType = ForwardRef('DocumentProcessor')
+
+
+class DocumentStructureExtractor:
+    """Class for extracting hierarchical document structure with page ranges."""
+    
+    def __init__(self, processor: DocumentProcessorType):
+        """
+        Initialize the document structure extractor.
+        
+        Args:
+            processor: The document processor to use for extraction
+        """
+        self.processor = processor
+        self.doc = processor.doc
+        self.config = processor.config
+        self.ai_client = processor.ai_client
+        
+    def extract_structure(self) -> DocumentSection:
+        """
+        Extract the complete document structure with hierarchical sections and page ranges.
+        
+        This method analyzes the entire document to produce a comprehensive structure,
+        not just relying on the table of contents in the document itself.
+        
+        Returns:
+            DocumentSection: Root section containing the complete document hierarchy
+        """
+        logger.info("Extracting complete document structure")
+        
+        # Create root document section
+        root = DocumentSection(
+            title="Document Root",
+            start_page=0,
+            end_page=self.doc.page_count - 1,
+            level=0
+        )
+        
+        # Try to extract structure using AI if enabled
+        if self.config.toc_extraction_strategy == ExtractionStrategy.AI:
+            try:
+                logger.info("Using AI to extract document structure")
+                return self._extract_structure_with_ai(root)
+            except Exception as e:
+                logger.error(f"AI structure extraction failed: {str(e)}")
+                logger.info("Falling back to native extraction")
+        
+        # Fall back to native extraction and enhance it
+        return self._extract_structure_with_native_enhancement(root)
+    
+    def _extract_structure_with_ai(self, root: DocumentSection) -> DocumentSection:
+        """
+        Extract document structure using AI analysis of the entire document.
+        
+        Args:
+            root: Root document section
+            
+        Returns:
+            DocumentSection: Root section with populated hierarchy
+        """
+        # Convert all pages to images for AI processing
+        logger.info("Converting all document pages to images for AI processing")
+        images = ImageConverter.convert_to_images(
+            self.doc,
+            num_pages=self.doc.page_count,  # Process entire document
+            start_page=0
+        )
+        
+        # Define a more comprehensive prompt for structure extraction
+        parts = []
+        for i, img in enumerate(images):
+            try:
+                parts.append(Part.from_data(data=img["data"], mime_type=img["_mime_type"]))
+            except Exception as e:
+                logger.warning(f"Failed to process image {i + 1}: {str(e)}")
+        
+        # Create a structured prompt for document analysis
+        structure_prompt = """
+        Analyze this document and extract its complete hierarchical structure. 
+        Include ALL structural elements (chapters, sections, subsections, appendices, etc.) at ALL hierarchy levels.
+        
+        For each section, provide:
+        1. Title (exact title as it appears)
+        2. Physical start page (0-indexed)
+        3. Physical end page (0-indexed)
+        4. Hierarchy level (1 for top-level, 2 for sections within chapters, etc.)
+        5. Logical page number as shown in the document (if visible)
+        6. Section type (chapter, section, appendix, etc.)
+        7. Section identifier (e.g., "Chapter 1", "Appendix A")
+        
+        The response should be a nested JSON structure that preserves the document hierarchy.
+        Ensure every section has both start and end page numbers.
+        End page of a section should be the page right before the next section at the same level starts,
+        or the end of the document if it's the last section.
+        """
+        
+        parts.append(Part.from_text(structure_prompt))
+        
+        # Define schema for response
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "title": {"type": "STRING"},
+                "sections": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "title": {"type": "STRING"},
+                            "start_page": {"type": "INTEGER"},
+                            "end_page": {"type": "INTEGER"},
+                            "level": {"type": "INTEGER"},
+                            "logical_start_page": {"type": "INTEGER", "optional": True},
+                            "logical_end_page": {"type": "INTEGER", "optional": True},
+                            "section_type": {"type": "STRING", "optional": True},
+                            "identifier": {"type": "STRING", "optional": True},
+                            "children": {"type": "ARRAY", "optional": True}
+                        },
+                        "required": ["title", "start_page", "end_page", "level"]
+                    }
+                }
+            },
+            "required": ["title", "sections"]
+        }
+        
+        generation_config = GenerationConfig(
+            temperature=0.1  # Low temperature for more predictable output
+        )
+        
+        # Call AI with retry
+        try:
+            logger.debug("Calling AI model to extract document structure")
+            response = self.ai_client._call_model_with_retry(
+                parts,
+                generation_config,
+                response_mime_type="application/json",
+                response_schema=response_schema
+            )
+            
+            # Parse the response
+            import json
+            structure_data = json.loads(response.text)
+            
+            # Process the structure data into our DocumentSection objects
+            root.title = structure_data.get("title", "Document Root")
+            
+            # Helper function to recursively build structure
+            def build_structure(section_data, parent_level=0):
+                sections = []
+                for item in section_data:
+                    section = DocumentSection(
+                        title=item["title"],
+                        start_page=item["start_page"],
+                        end_page=item["end_page"],
+                        level=item["level"],
+                        logical_start_page=item.get("logical_start_page"),
+                        logical_end_page=item.get("logical_end_page"),
+                        section_type=item.get("section_type"),
+                        identifier=item.get("identifier")
+                    )
+                    
+                    # Process children if any
+                    if "children" in item and item["children"]:
+                        section.children = build_structure(item["children"], item["level"])
+                        
+                    sections.append(section)
+                return sections
+            
+            # Build the complete structure
+            root.children = build_structure(structure_data.get("sections", []))
+            
+            return root
+            
+        except Exception as e:
+            logger.error(f"Error in AI structure extraction: {str(e)}")
+            raise
+    
+    def _extract_structure_with_native_enhancement(self, root: DocumentSection) -> DocumentSection:
+        """
+        Extract document structure using native TOC extraction and enhance it with additional analysis.
+        
+        Args:
+            root: Root document section
+            
+        Returns:
+            DocumentSection: Root section with populated hierarchy
+        """
+        logger.info("Extracting and enhancing document structure using native methods")
+        
+        # Get native table of contents
+        toc = self.doc.get_toc()
+        
+        if not toc:
+            logger.warning("No native TOC found, attempting to infer structure from document")
+            return self._infer_structure_from_document(root)
+        
+        # Convert TOC to DocumentSection objects
+        sections_by_level = {}  # Dictionary to keep track of the latest section at each level
+        
+        # First pass: create all sections
+        for level, title, page in toc:
+            # Convert to 0-based page index
+            page_idx = page - 1
+            
+            section = DocumentSection(
+                title=title,
+                start_page=page_idx,
+                level=level,
+                logical_start_page=page  # Store the logical page number as well
+            )
+            
+            # Find parent and add as child
+            if level > 1 and level - 1 in sections_by_level:
+                parent = sections_by_level[level - 1]
+                parent.add_child(section)
+            else:
+                # Top-level section or couldn't find parent, add to root
+                root.add_child(section)
+            
+            # Update the latest section at this level
+            sections_by_level[level] = section
+        
+        # Second pass: set end pages
+        # Sort all sections by start page for processing
+        all_sections = []
+        
+        def collect_sections(section):
+            all_sections.append(section)
+            for child in section.children:
+                collect_sections(child)
+        
+        for child in root.children:
+            collect_sections(child)
+        
+        all_sections.sort(key=lambda s: (s.start_page, -s.level))
+        
+        # Set end pages based on next section at same or higher level
+        for i, section in enumerate(all_sections):
+            # Find the next section at same or higher level that starts after this one
+            for j in range(i + 1, len(all_sections)):
+                next_section = all_sections[j]
+                if next_section.level <= section.level and next_section.start_page > section.start_page:
+                    section.end_page = next_section.start_page - 1
+                    break
+            
+            # If no next section found, end at document end
+            if section.end_page is None:
+                section.end_page = self.doc.page_count - 1
+                
+        # Analyze document to enhance with section types and identifiers
+        self._enhance_structure_with_text_analysis(root)
+            
+        return root
+    
+    def _infer_structure_from_document(self, root: DocumentSection) -> DocumentSection:
+        """
+        Infer document structure by analyzing page content when no TOC is available.
+        
+        Args:
+            root: Root document section
+            
+        Returns:
+            DocumentSection: Root section with inferred hierarchy
+        """
+        logger.info("Inferring document structure from page content")
+        
+        # This is a simplified approach - in a real implementation, you would use
+        # more sophisticated text analysis to detect headings, etc.
+        
+        # Simple approach: look for potential headings (large text, centered, etc.)
+        potential_sections = []
+        
+        for page_idx in range(self.doc.page_count):
+            page = self.doc[page_idx]
+            
+            # Extract text blocks with their attributes
+            blocks = page.get_text("dict")["blocks"]
+            
+            for block in blocks:
+                if "lines" not in block:
+                    continue
+                    
+                for line in block["lines"]:
+                    if "spans" not in line:
+                        continue
+                        
+                    for span in line["spans"]:
+                        text = span.get("text", "").strip()
+                        font_size = span.get("size", 0)
+                        
+                        # Heuristic: potential headings are larger text
+                        if len(text) > 0 and len(text) < 100 and font_size > 12:
+                            # Check if it looks like a heading (e.g., "Chapter 1", "1. Introduction")
+                            if re.match(r"^(chapter|section|part|appendix|\d+\.)\s+\w+", text.lower()):
+                                # Determine level based on font size (larger = higher level)
+                                level = 1 if font_size > 16 else 2
+                                
+                                potential_sections.append({
+                                    "title": text,
+                                    "start_page": page_idx,
+                                    "level": level
+                                })
+        
+        # Sort by page and create structure
+        potential_sections.sort(key=lambda s: s["start_page"])
+        
+        # Create sections and set end pages
+        for i, section_data in enumerate(potential_sections):
+            section = DocumentSection(
+                title=section_data["title"],
+                start_page=section_data["start_page"],
+                level=section_data["level"]
+            )
+            
+            # Set end page
+            if i < len(potential_sections) - 1:
+                section.end_page = potential_sections[i + 1]["start_page"] - 1
+            else:
+                section.end_page = self.doc.page_count - 1
+                
+            # Add to root
+            if section.level == 1:
+                root.add_child(section)
+            else:
+                # Find parent for this section
+                parent = None
+                for potential_parent in reversed(root.children):
+                    if potential_parent.start_page <= section.start_page:
+                        parent = potential_parent
+                        break
+                
+                if parent:
+                    parent.add_child(section)
+                else:
+                    root.add_child(section)
+        
+        return root
+    
+    def _enhance_structure_with_text_analysis(self, root: DocumentSection) -> None:
+        """
+        Enhance the document structure with additional information from text analysis.
+        
+        Args:
+            root: Root document section to enhance
+        """
+        logger.info("Enhancing document structure with text analysis")
+        
+        def process_section(section):
+            # Skip processing if this is the root
+            if section.level == 0:
+                for child in section.children:
+                    process_section(child)
+                return
+                
+            # Analyze the first page of the section to extract more information
+            page = self.doc[section.start_page]
+            text = page.get_text(0, 500)  # Get first 500 characters
+            
+            # Try to identify section type and identifier
+            section_type = None
+            identifier = None
+            
+            # Common patterns for section types
+            if re.search(r"\bchapter\s+\d+", text.lower()):
+                section_type = "chapter"
+                match = re.search(r"(chapter\s+\d+)", text.lower())
+                if match:
+                    identifier = match.group(1).title()
+            elif re.search(r"\bappendix\s+[a-z]", text.lower(), re.IGNORECASE):
+                section_type = "appendix"
+                match = re.search(r"(appendix\s+[a-z])", text, re.IGNORECASE)
+                if match:
+                    identifier = match.group(1).title()
+            elif re.search(r"^\s*\d+\.\d+\s+", text):
+                section_type = "subsection"
+                match = re.search(r"(\d+\.\d+)", text)
+                if match:
+                    identifier = f"Section {match.group(1)}"
+            elif re.search(r"^\s*\d+\.\s+", text):
+                section_type = "section"
+                match = re.search(r"(\d+\.)", text)
+                if match:
+                    identifier = f"Section {match.group(1)}"
+            
+            # Update section with extracted information
+            if section_type:
+                section.section_type = section_type
+            if identifier:
+                section.identifier = identifier
+                
+            # Process children recursively
+            for child in section.children:
+                process_section(child)
+        
+        # Process all sections starting from root
+        process_section(root)
+
+    def export_structure(self, output_format: str = "json") -> Any:
+        """
+        Export the document structure in various formats.
+        
+        Args:
+            output_format: Format to export ("json", "dict", "xml")
+            
+        Returns:
+            The document structure in the requested format
+        """
+        structure = self.extract_structure()
+        
+        if output_format == "dict":
+            return structure.to_dict()
+        elif output_format == "json":
+            import json
+            return json.dumps(structure.to_dict(), indent=2)
+        elif output_format == "xml":
+            # Simple XML conversion
+            import xml.dom.minidom as minidom
+            import xml.etree.ElementTree as ET
+            
+            def section_to_xml(section, parent_elem):
+                section_elem = ET.SubElement(parent_elem, "section")
+                section_elem.set("title", section.title)
+                section_elem.set("start_page", str(section.start_page))
+                section_elem.set("end_page", str(section.end_page) if section.end_page is not None else "")
+                section_elem.set("level", str(section.level))
+                
+                if section.logical_start_page is not None:
+                    section_elem.set("logical_start_page", str(section.logical_start_page))
+                if section.logical_end_page is not None:
+                    section_elem.set("logical_end_page", str(section.logical_end_page))
+                if section.section_type:
+                    section_elem.set("section_type", section.section_type)
+                if section.identifier:
+                    section_elem.set("identifier", section.identifier)
+                
+                for child in section.children:
+                    section_to_xml(child, section_elem)
+                
+                return section_elem
+            
+            root_elem = ET.Element("document")
+            section_to_xml(structure, root_elem)
+            
+            xml_str = ET.tostring(root_elem, encoding='utf-8')
+            pretty_xml = minidom.parseString(xml_str).toprettyxml(indent="  ")
+            return pretty_xml
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
+    
+    def extract_text_by_section(self, output_dir: Optional[str] = None) -> Dict[str, str]:
+        """
+        Extract text content for each section in the document structure.
+        
+        Args:
+            output_dir: Optional directory to save extracted text files
+            
+        Returns:
+            Dictionary mapping section identifiers to extracted text
+        """
+        structure = self.extract_structure()
+        result = {}
+        
+        def process_section(section, path=""):
+            # Skip root
+            if section.level == 0:
+                for child in section.children:
+                    process_section(child, path)
+                return
+                
+            # Create path for this section
+            section_path = f"{path}/{section.title}" if path else section.title
+            section_path = re.sub(r'[\\/*?:"<>|]', "_", section_path)  # Remove invalid chars
+            
+            # Extract text from the section's page range
+            text = ""
+            if section.start_page is not None and section.end_page is not None:
+                for page_idx in range(section.start_page, section.end_page + 1):
+                    if page_idx < self.doc.page_count:
+                        page = self.doc[page_idx]
+                        text += page.get_text()
+            
+            # Save to result dictionary
+            identifier = section.identifier or section_path
+            result[identifier] = text
+            
+            # Save to file if output directory provided
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                file_path = os.path.join(output_dir, f"{section_path}.txt")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(text)
+            
+            # Process children
+            for child in section.children:
+                process_section(child, section_path)
+        
+        # Process all sections
+        process_section(structure)
+        return result
 
 
 class DocumentProcessor(ABC):
@@ -879,3 +1431,9 @@ class ProcessorFactory:
         # Load the document
         processor.load(file_path)
         return processor
+
+
+# Resolve forward references
+if not TYPE_CHECKING:
+    DocumentProcessorType.__forward_arg__ = 'DocumentProcessor'
+    DocumentProcessorType._evaluate(globals(), None, recursive_guard=set())

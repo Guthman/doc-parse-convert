@@ -3,12 +3,11 @@ Unit tests for the ImageConverter class.
 """
 
 import os
+import io
 import unittest
-from pathlib import Path
 import tempfile
 import fitz  # PyMuPDF
 from PIL import Image
-import io
 
 from doc_parse_convert.content_extraction import ImageConverter
 

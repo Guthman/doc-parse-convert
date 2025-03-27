@@ -1,6 +1,3 @@
-import ebooklib
-from ebooklib import epub
-from bs4 import BeautifulSoup
 from pathlib import Path
 import subprocess
 import io
@@ -8,9 +5,12 @@ import zipfile
 import tempfile
 import shutil
 import base64
+import json
 import requests
 from requests import Response
-import json
+import ebooklib
+from ebooklib import epub
+from bs4 import BeautifulSoup
 from google.oauth2 import service_account
 import google.auth.transport.requests
 

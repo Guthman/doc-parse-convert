@@ -5,6 +5,7 @@ A collection of utilities for document content extraction and conversion, includ
 - PDF document processing and content extraction
 - EPUB to HTML/TXT/PDF conversion
 - Support for AI-assisted document content extraction
+- Hierarchical document structure extraction with page ranges
 
 ## Installation
 
@@ -87,6 +88,30 @@ converter = ImageConverter('document.pdf', format='jpg')
 for page_number, page_data in converter:
     with open(f'document_page_{page_number+1}.jpg', 'wb') as f:
         f.write(page_data)
+
+# Extract document structure with page ranges
+from doc_parse_convert.content_extraction import PDFProcessor, ProcessingConfig, DocumentStructureExtractor
+
+# Configure the processor
+config = ProcessingConfig(
+    project_id="your-project-id",
+    vertex_ai_location="your-location"
+)
+
+# Process a PDF file
+processor = PDFProcessor(config)
+processor.load("document.pdf")
+
+# Extract hierarchical document structure with page ranges
+structure_extractor = DocumentStructureExtractor(processor)
+document_structure = structure_extractor.extract_structure()
+
+# Export structure in different formats
+json_structure = structure_extractor.export_structure("json")
+xml_structure = structure_extractor.export_structure("xml")
+
+# Extract text by sections
+section_texts = structure_extractor.extract_text_by_section("output_folder")
 ```
 
 ## Examples
