@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Dict, Any, Optional, TYPE_CHECKING, ForwardRef
 from pathlib import Path
+import datetime
+import json
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -238,14 +240,36 @@ class DocumentStructureExtractor:
             
         Returns:
             DocumentSection: Root section with populated hierarchy
+            
+        Raises:
+            ValueError: If AI model is not initialized or extraction fails
         """
+        # Check if AI client is available
+        if not self.ai_client or not self.ai_client.model:
+            error_msg = "AI model not initialized for structure extraction"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
         # Convert all pages to images for AI processing
         logger.info("Converting all document pages to images for AI processing")
-        images = ImageConverter.convert_to_images(
-            self.doc,
-            num_pages=self.doc.page_count,  # Process entire document
-            start_page=0
-        )
+        try:
+            images = ImageConverter.convert_to_images(
+                self.doc,
+                num_pages=self.doc.page_count,  # Process entire document
+                start_page=0,
+                image_quality=self.config.image_quality
+            )
+            
+            if not images:
+                error_msg = "No images were generated from document for AI processing"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            logger.info(f"Successfully converted {len(images)} document pages to images")
+        except Exception as e:
+            error_msg = f"Failed to convert document pages to images: {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
         
         # Define a more comprehensive prompt for structure extraction
         parts = []
@@ -255,29 +279,64 @@ class DocumentStructureExtractor:
             except Exception as e:
                 logger.warning(f"Failed to process image {i + 1}: {str(e)}")
         
-        # Create a structured prompt for document analysis
-        structure_prompt = """
-        Analyze this document and extract its complete hierarchical structure. 
-        Include ALL structural elements (chapters, sections, subsections, appendices, etc.) at ALL hierarchy levels.
+        if not parts:
+            error_msg = "No valid image parts were created for AI processing"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
-        For each section, provide:
-        1. Title (exact title as it appears)
-        2. Physical start page (0-indexed)
-        3. Physical end page (0-indexed)
-        4. Hierarchy level (1 for top-level, 2 for sections within chapters, etc.)
-        5. Logical page number as shown in the document (if visible)
-        6. Section type (chapter, section, appendix, etc.)
-        7. Section identifier (e.g., "Chapter 1", "Appendix A")
+        logger.debug(f"Created {len(parts)} image parts for AI processing")
         
-        The response should be a nested JSON structure that preserves the document hierarchy.
-        Ensure every section has both start and end page numbers.
-        End page of a section should be the page right before the next section at the same level starts,
-        or the end of the document if it's the last section.
-        """
+        # Add instruction text
+        try:
+            parts.append(Part.from_text(
+                """Analyze this document and extract its hierarchical structure. 
+                Identify all sections and subsections with their titles, page numbers, and levels.
+                
+                1. Main Title: Extract the document's main title.
+                
+                2. Sections: For each section and subsection:
+                   - Extract the exact title text
+                   - Identify starting page number (1-based)
+                   - Identify ending page number (1-based)
+                   - Determine section level (1 for top-level sections, 2+ for subsections)
+                   - Include any section identifiers or numbers
+                
+                3. Hierarchy: Maintain the proper hierarchical relationship between sections,
+                   with child sections properly nested under their parents.
+                
+                Format your response as a JSON object with this structure:
+                {
+                  "title": "Document Title",
+                  "sections": [
+                    {
+                      "title": "Section 1 Title",
+                      "start_page": 1,
+                      "end_page": 10,
+                      "level": 1,
+                      "children": [
+                        {
+                          "title": "Subsection 1.1 Title",
+                          "start_page": 2,
+                          "end_page": 5,
+                          "level": 2,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+                
+                Note: All page numbers should be 1-based (first page is 1, not 0)."""
+            ))
+        except Exception as e:
+            logger.error(f"Failed to create instruction text part: {str(e)}")
+            raise ValueError(f"Failed to create instruction text part: {str(e)}") from e
         
-        parts.append(Part.from_text(structure_prompt))
+        generation_config = GenerationConfig(
+            temperature=0.1  # Low temperature for more deterministic results
+        )
         
-        # Define schema for response
+        # Define response schema
         response_schema = {
             "type": "OBJECT",
             "properties": {
@@ -291,22 +350,14 @@ class DocumentStructureExtractor:
                             "start_page": {"type": "INTEGER"},
                             "end_page": {"type": "INTEGER"},
                             "level": {"type": "INTEGER"},
-                            "logical_start_page": {"type": "INTEGER", "nullable": True},
-                            "logical_end_page": {"type": "INTEGER", "nullable": True},
-                            "section_type": {"type": "STRING", "nullable": True},
-                            "identifier": {"type": "STRING", "nullable": True},
-                            "children": {"type": "ARRAY", "nullable": True}
+                            "children": {"type": "ARRAY"}
                         },
-                        "required": ["title", "start_page", "end_page", "level"]
+                        "required": ["title", "start_page", "level"]
                     }
                 }
             },
             "required": ["title", "sections"]
         }
-        
-        generation_config = GenerationConfig(
-            temperature=0.1  # Low temperature for more predictable output
-        )
         
         # Call AI with retry
         try:
@@ -319,7 +370,6 @@ class DocumentStructureExtractor:
             )
             
             # Parse the response
-            import json
             structure_data = json.loads(response.text)
             
             # Process the structure data into our DocumentSection objects
@@ -329,10 +379,16 @@ class DocumentStructureExtractor:
             def build_structure(section_data, parent_level=0):
                 sections = []
                 for item in section_data:
+                    # Validate and adjust page numbers
+                    start_page = max(0, item.get("start_page", 1) - 1)  # Convert to 0-based
+                    end_page = item.get("end_page")
+                    if end_page is not None:
+                        end_page = max(start_page, end_page - 1)  # Convert to 0-based
+                    
                     section = DocumentSection(
                         title=item["title"],
-                        start_page=item["start_page"],
-                        end_page=item["end_page"],
+                        start_page=start_page,
+                        end_page=end_page,
                         level=item["level"],
                         logical_start_page=item.get("logical_start_page"),
                         logical_end_page=item.get("logical_end_page"),
@@ -350,10 +406,40 @@ class DocumentStructureExtractor:
             # Build the complete structure
             root.children = build_structure(structure_data.get("sections", []))
             
+            # Verify top level sections have end_page values
+            for section in root.children:
+                if section.end_page is None:
+                    # If end_page is missing, use either the next section's start_page - 1
+                    # or the document's last page
+                    next_section_idx = root.children.index(section) + 1
+                    if next_section_idx < len(root.children):
+                        section.end_page = root.children[next_section_idx].start_page - 1
+                    else:
+                        section.end_page = self.doc.page_count - 1
+            
+            logger.info(f"Successfully extracted document structure with {len(root.children)} top-level sections")
             return root
             
         except Exception as e:
             logger.error(f"Error in AI structure extraction: {str(e)}")
+            # Additional diagnostic information
+            logger.error(f"Document has {self.doc.page_count} pages")
+            logger.error(f"Using model: {self.config.gemini_model_name}")
+            logger.debug(f"Response schema: {json.dumps(response_schema, indent=2)}")
+            
+            # Check for specific error types
+            error_class = e.__class__.__name__
+            if 'InvalidArgument' in error_class:
+                logger.error("The API request contains an invalid argument. This could be due to:")
+                logger.error("- Images too large or too many images in the request")
+                logger.error("- Malformed request structure or invalid parameters")
+                logger.error("- Model limitations or incompatible response schema")
+                
+                # Save debug information if enabled
+                debug_dir = os.environ.get("AI_DEBUG_DIR")
+                if not debug_dir:
+                    logger.info("Set AI_DEBUG_DIR environment variable to save debug information")
+                
             raise
     
     def _extract_structure_with_native_enhancement(self, root: DocumentSection) -> DocumentSection:
@@ -591,7 +677,6 @@ class DocumentStructureExtractor:
         if output_format == "dict":
             return structure.to_dict()
         elif output_format == "json":
-            import json
             return json.dumps(structure.to_dict(), indent=2)
         elif output_format == "xml":
             # Simple XML conversion
@@ -873,39 +958,80 @@ class ImageConverter:
         return self
     
     @staticmethod
-    def convert_to_images(document: Any, num_pages: int = 20, start_page: int = 0) -> List[Dict[str, Any]]:
+    def convert_to_images(document: Any, num_pages: int = 20, start_page: int = 0, image_quality: int = 300) -> List[Dict[str, Any]]:
         """Convert document pages to images.
         
         Args:
             document: Document to convert (e.g., PDF)
             num_pages: Number of pages to convert
             start_page: Starting page number (0-based index)
+            image_quality: DPI for image conversion (default: 300)
         
         Returns:
             List of dictionaries containing image data in format expected by Vertex AI
+            
+        Raises:
+            ValueError: If document type is not supported or conversion fails
+            NotImplementedError: If conversion is not implemented for the document type
         """
         if isinstance(document, fitz.Document):
             images = []
             # Calculate the end page, ensuring we don't exceed document bounds
             end_page = min(start_page + num_pages, document.page_count)
             
+            # Estimate reasonable quality based on page count to prevent oversized requests
+            # Adjust quality down if we have many pages to process
+            adjusted_quality = image_quality
+            if num_pages > 50:
+                adjusted_quality = min(image_quality, 200)  # Medium quality for many pages
+            if num_pages > 100:
+                adjusted_quality = min(image_quality, 150)  # Lower quality for very many pages
+            
+            if adjusted_quality != image_quality:
+                logger.info(f"Adjusting image quality from {image_quality} to {adjusted_quality} DPI due to large page count ({num_pages})")
+            
             for i in range(start_page, end_page):
-                page = document.load_page(i)
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                
-                # Convert to bytes
-                img_byte_arr = io.BytesIO()
-                img.save(img_byte_arr, format='PNG')
-                img_byte_arr = img_byte_arr.getvalue()
-                
-                # Create image object in format expected by Vertex AI
-                image_obj = {
-                    "data": img_byte_arr,
-                    "_mime_type": "image/png"
-                }
-                images.append(image_obj)
+                try:
+                    page = document.load_page(i)
+                    
+                    # Calculate matrix for the specified DPI
+                    # 72 is the base DPI for PDF
+                    zoom = adjusted_quality / 72
+                    matrix = fitz.Matrix(zoom, zoom)
+                    
+                    pix = page.get_pixmap(matrix=matrix)
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    
+                    # Convert to bytes
+                    img_byte_arr = io.BytesIO()
+                    
+                    # Use compression to reduce file size (quality=85 provides good balance)
+                    img.save(img_byte_arr, format='PNG', optimize=True)
+                    img_byte_arr = img_byte_arr.getvalue()
+                    
+                    # Check image size and log warning if it's large
+                    img_size_mb = len(img_byte_arr) / (1024 * 1024)
+                    if img_size_mb > 10:
+                        logger.warning(f"Page {i+1} image is very large: {img_size_mb:.2f}MB")
+                    elif img_size_mb > 5:
+                        logger.debug(f"Page {i+1} image is large: {img_size_mb:.2f}MB")
+                    
+                    # Create image object in format expected by Vertex AI
+                    image_obj = {
+                        "data": img_byte_arr,
+                        "_mime_type": "image/png"
+                    }
+                    images.append(image_obj)
+                    
+                except Exception as e:
+                    logger.error(f"Error converting page {i+1}: {str(e)}")
+                    # Continue with other pages if possible
+            
+            if not images:
+                raise ValueError(f"Failed to convert any pages from document")
+            
             return images
+        
         raise NotImplementedError(f"Conversion not implemented for {type(document)}")
 
 
@@ -943,7 +1069,11 @@ class AIClient:
                         text = text[:500] + "... [truncated]"
                     logger.debug(f"API Request - Text part {i}: {text}")
                 elif hasattr(part, 'mime_type') and part.mime_type.startswith('image/'):
-                    logger.debug(f"API Request - Image part {i}: {part.mime_type}")
+                    if hasattr(part, 'data'):
+                        img_size = len(part.data) if part.data else 0
+                        logger.debug(f"API Request - Image part {i}: {part.mime_type}, size: {img_size} bytes")
+                    else:
+                        logger.debug(f"API Request - Image part {i}: {part.mime_type}")
 
             # Create new config with adjusted temperature
             base_temp = 0.0  # Default temperature if not specified
@@ -989,32 +1119,77 @@ class AIClient:
             return response
 
         except Exception as e:
-            logger.error(f"Error during model call: {str(e)}")
+            logger.error(f"Error during model call: {e.__class__.__name__} {str(e)}")
             
             # Log detailed error information if available
-            # Some API exceptions have a response attribute containing error details
             if hasattr(e, 'response'):
                 if hasattr(e.response, 'text'):
-                    logger.error(f"Error response: {e.response.text}")
+                    logger.error(f"Error response text: {e.response.text}")
                 elif hasattr(e.response, 'content'):
-                    logger.error(f"Error response: {e.response.content}")
+                    logger.error(f"Error response content: {e.response.content}")
                 elif hasattr(e.response, 'json'):
                     try:
-                        logger.error(f"Error response: {e.response.json()}")
+                        logger.error(f"Error response JSON: {e.response.json()}")
                     except:
                         logger.error(f"Error response object: {e.response}")
             
-            # Optional: Save images to disk for debugging
+            # For Google API errors, extract more details
+            if hasattr(e, 'details'):
+                logger.error(f"Error details: {e.details}")
+            if hasattr(e, 'code'):
+                logger.error(f"Error code: {e.code}")
+            
+            # Debug API request details for InvalidArgument errors
+            if 'InvalidArgument' in e.__class__.__name__:
+                logger.error(f"API request might contain invalid arguments. Check image sizes and request structure.")
+                logger.debug(f"Using model: {self.config.gemini_model_name}")
+                logger.debug(f"Project ID: {self.config.project_id}")
+                logger.debug(f"Location: {self.config.vertex_ai_location}")
+                
+                # Check if any parts exceed size limits
+                total_size = 0
+                for i, part in enumerate(parts):
+                    if hasattr(part, 'data') and part.data:
+                        part_size = len(part.data)
+                        total_size += part_size
+                        if part_size > 20 * 1024 * 1024:  # 20MB
+                            logger.error(f"Image part {i} exceeds 20MB limit: {part_size / (1024 * 1024):.2f}MB")
+                
+                logger.debug(f"Total request size: {total_size / (1024 * 1024):.2f}MB")
+            
+            # Save problematic images to disk for debugging
             debug_dir = os.environ.get("AI_DEBUG_DIR")
             if debug_dir:
                 os.makedirs(debug_dir, exist_ok=True)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                debug_subdir = os.path.join(debug_dir, f"error_{timestamp}")
+                os.makedirs(debug_subdir, exist_ok=True)
+                
+                # Save debug info
+                with open(os.path.join(debug_subdir, "error_info.txt"), "w") as f:
+                    f.write(f"Error: {e.__class__.__name__} - {str(e)}\n")
+                    f.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n")
+                    f.write(f"Model: {self.config.gemini_model_name}\n")
+                    f.write(f"Temperature: {adjusted_temp}\n")
+                    f.write(f"Attempt: {attempt + 1}/10\n")
+                    
+                    if response_schema:
+                        f.write(f"\nResponse Schema:\n{json.dumps(response_schema, indent=2)}\n")
+                
+                # Save images
                 for i, part in enumerate(parts):
                     if hasattr(part, 'mime_type') and getattr(part, 'mime_type', '').startswith('image/'):
-                        debug_path = os.path.join(debug_dir, f"debug_image_{i}.png")
-                        with open(debug_path, 'wb') as f:
-                            f.write(part.data)
-                logger.info(f"Saved debug images to {debug_dir}")
+                        try:
+                            ext = part.mime_type.split('/')[-1]
+                            debug_path = os.path.join(debug_subdir, f"image_{i}.{ext}")
+                            with open(debug_path, 'wb') as f:
+                                f.write(part.data)
+                        except Exception as img_error:
+                            logger.error(f"Failed to save debug image {i}: {str(img_error)}")
+                
+                logger.info(f"Saved debug information to {debug_subdir}")
             
+            # Re-raise to allow retry
             raise
 
     def extract_structure_from_images(self, images: List[Dict[str, Any]]) -> List[Chapter]:
@@ -1094,7 +1269,6 @@ class AIClient:
             
             logger.debug("Parsing JSON response")
             response_text = response.text
-            import json
             toc_data = json.loads(response_text)
             
             if not isinstance(toc_data, list):
@@ -1427,7 +1601,6 @@ class PDFProcessor(DocumentProcessor):
 
                 logger.debug("Parsing JSON response")
                 response_text = response.text
-                import json
                 pages_data = json.loads(response_text)
 
                 pages = []

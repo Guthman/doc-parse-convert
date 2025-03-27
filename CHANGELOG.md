@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-03-27
+
+### Added
+
+- Enhanced error diagnostics for AI API calls with detailed error information
+- Comprehensive debug system for saving problematic images when AI calls fail
+- Timestamp-based debug directory structure to organize debug artifacts
+- Size-based image quality adjustment for large documents
+- Image size validation and warnings for potentially oversized requests
+- Better error messages for specific API error types
+
+### Improved
+
+- More robust error handling in AI structure extraction
+- Improved logging with detailed API request information
+- Enhanced validation of extraction results
+- Better handling of missing end_page values in document structure
+- Enhanced prompt for document structure extraction
+- Auto-adjusted image quality based on document page count
+
+### Fixed
+
+- Fixed handling of InvalidArgument API errors with detailed diagnostics
+- Better error messages with root cause analysis
+- Page number conversions from 1-based (API response) to 0-based (internal)
+
 ## [0.4.0] - 2025-03-27
 
 ### Added

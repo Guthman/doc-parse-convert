@@ -174,31 +174,61 @@ def test_ai_structure_extraction(pdf_sample_path, processing_config):
         
         # Extract structure
         try:
-            structure = structure_extractor.extract_structure()
+            # Enable debug mode for the test
+            original_debug_dir = os.environ.get("AI_DEBUG_DIR")
+            temp_debug_dir = os.path.join(os.path.dirname(pdf_sample_path), "ai_debug_test")
+            os.environ["AI_DEBUG_DIR"] = temp_debug_dir
+            os.makedirs(temp_debug_dir, exist_ok=True)
             
+            # Attempt extraction with more informative error handling
+            structure = None
+            try:
+                structure = structure_extractor.extract_structure()
+            except Exception as e:
+                error_msg = f"AI extraction failed with error: {e.__class__.__name__}: {str(e)}"
+                if "InvalidArgument" in e.__class__.__name__:
+                    error_msg += "\nPossible causes:"
+                    error_msg += "\n- Image size too large for API limits"
+                    error_msg += "\n- Too many images in single request"
+                    error_msg += "\n- Invalid response schema format"
+                    error_msg += f"\nCheck debug directory: {temp_debug_dir}"
+                pytest.fail(error_msg)
+            
+            # Restore original debug directory
+            if original_debug_dir:
+                os.environ["AI_DEBUG_DIR"] = original_debug_dir
+            else:
+                os.environ.pop("AI_DEBUG_DIR", None)
+                
             # Basic structure validation
-            assert structure is not None
-            assert structure.title is not None
-            assert structure.start_page == 0
-            assert structure.end_page == processor.doc.page_count - 1
+            assert structure is not None, "Structure should not be None"
+            assert structure.title is not None, "Document title should not be None"
+            assert structure.start_page == 0, "Document should start at page 0"
+            assert structure.end_page == processor.doc.page_count - 1, "Document should end at last page"
             
             # Check that at least some sections were extracted
-            assert len(structure.children) > 0
+            assert len(structure.children) > 0, "Document should have at least one section"
             
             # Validate structure format (not exact content)
             first_section = structure.children[0]
-            assert first_section.title is not None
-            assert first_section.start_page >= 0
-            assert first_section.end_page is not None
-            assert first_section.level > 0
+            assert first_section.title is not None, "Section title should not be None"
+            assert first_section.start_page >= 0, "Section start page should be valid"
+            assert first_section.end_page is not None, "Section end page should not be None"
+            assert first_section.level > 0, "Section level should be greater than 0"
             
             # Verify JSON export works with AI-extracted structure
             json_structure = structure_extractor.export_structure(output_format="json")
-            assert json_structure is not None
+            assert json_structure is not None, "JSON export should not be None"
             parsed = json.loads(json_structure)
-            assert isinstance(parsed, dict)
+            assert isinstance(parsed, dict), "Parsed JSON should be a dictionary"
             
         except Exception as e:
-            pytest.fail(f"AI extraction failed with error: {str(e)}")
+            error_class = e.__class__.__name__
+            # Clean up test debug directory
+            import shutil
+            if os.path.exists(temp_debug_dir):
+                shutil.rmtree(temp_debug_dir)
+                
+            pytest.fail(f"AI extraction test failed: {error_class}: {str(e)}")
     finally:
         processor.close()

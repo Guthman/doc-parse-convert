@@ -26,6 +26,7 @@ The utilities require various configuration values and credentials. These can be
    ```
    JINA_API_KEY=your_jina_api_key
    GCP_SERVICE_ACCOUNT=your_service_account_json
+   AI_DEBUG_DIR=path/to/debug/directory  # For saving debug information when AI extraction fails
    ```
 
 2. Processing Configuration:
@@ -47,6 +48,26 @@ The utilities require various configuration values and credentials. These can be
    - Pandoc: For EPUB to PDF conversion
    - wkhtmltopdf: For HTML to PDF conversion
    Make sure these tools are installed and available in your system PATH.
+
+## Debugging AI Extraction
+
+If you encounter issues with AI extraction, you can enable debugging by setting the AI_DEBUG_DIR environment variable:
+
+```bash
+# On Windows
+$env:AI_DEBUG_DIR = "C:\path\to\debug\directory"
+
+# On Linux/Mac
+export AI_DEBUG_DIR=/path/to/debug/directory
+```
+
+When set, the library will save:
+- Timestamped debug directories for each error
+- Problematic images that caused API errors
+- Error details and request information
+- Complete API error diagnostics
+
+This helps troubleshoot issues with the Vertex AI API, particularly "InvalidArgument" errors related to image sizes or content.
 
 ## Usage
 
