@@ -197,11 +197,15 @@ class DocumentStructureExtractor:
         """
         Extract the complete document structure with hierarchical sections and page ranges.
         
-        This method analyzes the entire document to produce a comprehensive structure,
-        not just relying on the table of contents in the document itself.
+        This method analyzes the entire document to produce a comprehensive structure using
+        the specified extraction strategy. No automatic fallbacks are used.
         
         Returns:
             DocumentSection: Root section containing the complete document hierarchy
+            
+        Raises:
+            ValueError: If extraction strategy is invalid
+            Exception: If extraction fails
         """
         logger.info("Extracting complete document structure")
         
@@ -213,17 +217,17 @@ class DocumentStructureExtractor:
             level=0
         )
         
-        # Try to extract structure using AI if enabled
+        # Use the extraction strategy specified in the config
         if self.config.toc_extraction_strategy == ExtractionStrategy.AI:
-            try:
-                logger.info("Using AI to extract document structure")
-                return self._extract_structure_with_ai(root)
-            except Exception as e:
-                logger.error(f"AI structure extraction failed: {str(e)}")
-                logger.info("Falling back to native extraction")
-        
-        # Fall back to native extraction and enhance it
-        return self._extract_structure_with_native_enhancement(root)
+            logger.info("Using AI to extract document structure")
+            return self._extract_structure_with_ai(root)
+        elif self.config.toc_extraction_strategy == ExtractionStrategy.NATIVE:
+            logger.info("Using native methods to extract document structure")
+            return self._extract_structure_with_native_enhancement(root)
+        else:
+            error_msg = f"Unsupported extraction strategy: {self.config.toc_extraction_strategy}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
     
     def _extract_structure_with_ai(self, root: DocumentSection) -> DocumentSection:
         """
@@ -680,30 +684,46 @@ class DocumentProcessor(ABC):
     """Base class for document processors."""
 
     def __init__(self, config: ProcessingConfig):
+        """Initialize the document processor.
+        
+        Args:
+            config: Configuration for document processing
+        """
         self.config = config
+        self.doc = None  # Document object to be initialized by subclasses
+        self.ai_client = None  # AI client to be initialized
         self._initialize_ai_client()
 
     def _initialize_ai_client(self) -> None:
         """Initialize AI client if credentials are provided."""
         if not self.config.project_id or not self.config.vertex_ai_location:
+            logger.debug("No project ID or location provided, skipping AI client initialization")
             return
 
-        if self.config.use_application_default_credentials:
-            # Use application default credentials
-            vertexai.init(
-                project=self.config.project_id,
-                location=self.config.vertex_ai_location
-            )
-        elif self.config.service_account_file:
-            # Use service account credentials
-            credentials = service_account.Credentials.from_service_account_file(
-                self.config.service_account_file
-            )
-            vertexai.init(
-                project=self.config.project_id,
-                location=self.config.vertex_ai_location,
-                credentials=credentials
-            )
+        try:
+            if self.config.use_application_default_credentials:
+                # Use application default credentials
+                vertexai.init(
+                    project=self.config.project_id,
+                    location=self.config.vertex_ai_location
+                )
+            elif self.config.service_account_file:
+                # Use service account credentials
+                credentials = service_account.Credentials.from_service_account_file(
+                    self.config.service_account_file
+                )
+                vertexai.init(
+                    project=self.config.project_id,
+                    location=self.config.vertex_ai_location,
+                    credentials=credentials
+                )
+            
+            # Initialize the AI client
+            self.ai_client = AIClient(self.config)
+            logger.info("Successfully initialized AI client")
+        except Exception as e:
+            logger.error(f"Failed to initialize AI client: {str(e)}")
+            self.ai_client = None
 
     @abstractmethod
     def load(self, file_path: str) -> None:
@@ -909,6 +929,22 @@ class AIClient:
             raise ValueError("AI model not initialized")
 
         try:
+            # Log request details
+            logger.debug(f"API Request - Parts count: {len(parts)}")
+            logger.debug(f"API Request - Generation config: {generation_config}")
+            if response_schema:
+                logger.debug(f"API Request - Response schema: {response_schema}")
+                
+            # For text parts, log the content (truncated if too long)
+            for i, part in enumerate(parts):
+                if hasattr(part, 'text'):
+                    text = part.text
+                    if len(text) > 500:
+                        text = text[:500] + "... [truncated]"
+                    logger.debug(f"API Request - Text part {i}: {text}")
+                elif hasattr(part, 'mime_type') and part.mime_type.startswith('image/'):
+                    logger.debug(f"API Request - Image part {i}: {part.mime_type}")
+
             # Create new config with adjusted temperature
             base_temp = 0.0  # Default temperature if not specified
             if hasattr(generation_config, 'temperature'):
@@ -942,11 +978,43 @@ class AIClient:
                 logger.error("Received invalid or empty response from model")
                 raise ValueError("Invalid or empty response from model")
 
+            # Log response (truncated if too long)
+            response_text = response.text
+            if len(response_text) > 500:
+                logger.debug(f"API Response: {response_text[:500]}... [truncated]")
+            else:
+                logger.debug(f"API Response: {response_text}")
+
             logger.debug("Successfully received valid response from model")
             return response
 
         except Exception as e:
             logger.error(f"Error during model call: {str(e)}")
+            
+            # Log detailed error information if available
+            # Some API exceptions have a response attribute containing error details
+            if hasattr(e, 'response'):
+                if hasattr(e.response, 'text'):
+                    logger.error(f"Error response: {e.response.text}")
+                elif hasattr(e.response, 'content'):
+                    logger.error(f"Error response: {e.response.content}")
+                elif hasattr(e.response, 'json'):
+                    try:
+                        logger.error(f"Error response: {e.response.json()}")
+                    except:
+                        logger.error(f"Error response object: {e.response}")
+            
+            # Optional: Save images to disk for debugging
+            debug_dir = os.environ.get("AI_DEBUG_DIR")
+            if debug_dir:
+                os.makedirs(debug_dir, exist_ok=True)
+                for i, part in enumerate(parts):
+                    if hasattr(part, 'mime_type') and getattr(part, 'mime_type', '').startswith('image/'):
+                        debug_path = os.path.join(debug_dir, f"debug_image_{i}.png")
+                        with open(debug_path, 'wb') as f:
+                            f.write(part.data)
+                logger.info(f"Saved debug images to {debug_dir}")
+            
             raise
 
     def extract_structure_from_images(self, images: List[Dict[str, Any]]) -> List[Chapter]:
@@ -986,9 +1054,29 @@ class AIClient:
 
         logger.debug("Adding instruction text to parts")
         parts.append(Part.from_text(
-            "Extract the table of contents from these PDF images, including chapter titles and page numbers. "
-            "Skip pages which do not contain any parts of the table of contents. "
-            "Provide the output in JSON format."
+            """Extract text VERBATIM from these images and format all output in markdown. Preserve the original document structure and formatting. REPRODUCE ALL TEXT WORD FOR WORD, DON'T PARAPHRASE.
+
+            1. Main Chapter Text:
+                • Extract and format the main text as markdown
+                • Preserve all original formatting and structure
+                • Output as 'chapter_text' in the response
+            
+            2. Supplemental Elements:
+                • Extract text boxes, side notes, and callouts
+                • Format their content in markdown as well
+                • Label with appropriate type
+            
+            3. Tables:
+                • Convert tables to markdown format
+                • Include captions if present
+            
+            4. Figures:
+                • Include descriptions and bylines
+            
+            5. Headers and Footers:
+                • Exclude headers, footers, and page numbers
+            
+            Format the output as a JSON array of page objects."""
         ))
 
         generation_config = GenerationConfig(
@@ -1032,6 +1120,11 @@ class AIClient:
 
             # Set end pages
             logger.debug("Setting chapter end pages")
+            
+            # Sort chapters by page number first, then by level if they appear on the same page
+            # This handles cases where multiple chapters appear on the same page
+            chapters.sort(key=lambda x: (x.start_page, x.level))
+            
             for i in range(len(chapters) - 1):
                 chapters[i].end_page = chapters[i + 1].start_page
 
@@ -1089,7 +1182,16 @@ class PDFProcessor(DocumentProcessor):
             logger.debug("No document to close")
 
     def get_table_of_contents(self) -> List[Chapter]:
-        """Extract the table of contents from the PDF."""
+        """
+        Extract the table of contents using the configured strategy without fallbacks.
+        
+        Returns:
+            List[Chapter]: Table of contents as a list of chapters
+            
+        Raises:
+            ValueError: If document not loaded or strategy is not supported
+            Exception: If extraction fails
+        """
         if self._chapters_cache is not None:
             return self._chapters_cache
 
@@ -1097,11 +1199,13 @@ class PDFProcessor(DocumentProcessor):
             logger.error("Document not loaded")
             raise ValueError("Document not loaded")
 
-        # Always try native extraction first
-        logger.debug("Attempting native TOC extraction")
-        toc = self.doc.get_toc()
-        if toc:
-            logger.info("Successfully found native TOC")
+        if self.config.toc_extraction_strategy == ExtractionStrategy.NATIVE:
+            logger.info("Using native TOC extraction")
+            toc = self.doc.get_toc()
+            if not toc:
+                logger.error("No native TOC found in document")
+                raise ValueError("No native TOC found in document")
+                
             chapters = []
             for level, title, page in toc:
                 if level == 1:  # Only top-level chapters
@@ -1120,31 +1224,32 @@ class PDFProcessor(DocumentProcessor):
             self._chapters_cache = chapters
             logger.info(f"Successfully extracted {len(chapters)} chapters using native method")
             return chapters
-
-        # If native extraction failed and AI is allowed, try AI extraction
-        if self.config.toc_extraction_strategy == ExtractionStrategy.AI:
-            logger.info("Native TOC extraction failed, falling back to AI extraction")
+            
+        elif self.config.toc_extraction_strategy == ExtractionStrategy.AI:
+            logger.info("Using AI for TOC extraction")
+            if not self.ai_client or not self.ai_client.model:
+                logger.error("AI client not initialized")
+                raise ValueError("AI client not initialized")
+                
             images = ImageConverter.convert_to_images(
                 self.doc,
                 num_pages=self.config.max_pages_for_preview,
                 start_page=0
             )
             chapters = self.ai_client.extract_structure_from_images(images)
-            if chapters:
-                self._chapters_cache = chapters
-                return chapters
-            else:
-                logger.warning("AI TOC extraction failed")
-
-        # If we get here, either:
-        # 1. Native failed and AI is not allowed
-        # 2. Both native and AI failed
-        if not self.config.toc_extraction_strategy == ExtractionStrategy.AI:
-            logger.warning("Native TOC extraction failed and AI extraction not enabled")
+            
+            if not chapters:
+                logger.error("AI extraction failed to extract any chapters")
+                raise ValueError("AI extraction failed to extract any chapters")
+                
+            self._chapters_cache = chapters
+            logger.info(f"Successfully extracted {len(chapters)} chapters using AI method")
+            return chapters
+            
         else:
-            logger.warning("Both native and AI TOC extraction methods failed")
-        
-        return []
+            error_msg = f"Unsupported extraction strategy: {self.config.toc_extraction_strategy}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
     def split_by_chapters(self, output_dir: str) -> None:
         """Split the PDF into separate files by chapters."""
@@ -1284,24 +1389,24 @@ class PDFProcessor(DocumentProcessor):
                 """Extract text VERBATIM from these images and format all output in markdown. Preserve the original document structure and formatting. REPRODUCE ALL TEXT WORD FOR WORD, DON'T PARAPHRASE.
 
                 1. Main Chapter Text:
-                   • Extract and format the main text as markdown
-                   • Preserve all original formatting and structure
-                   • Output as 'chapter_text' in the response
+                    • Extract and format the main text as markdown
+                    • Preserve all original formatting and structure
+                    • Output as 'chapter_text' in the response
                 
                 2. Supplemental Elements:
-                   • Extract text boxes, side notes, and callouts
-                   • Format their content in markdown as well
-                   • Label with appropriate type
+                    • Extract text boxes, side notes, and callouts
+                    • Format their content in markdown as well
+                    • Label with appropriate type
                 
                 3. Tables:
-                   • Convert tables to markdown format
-                   • Include captions if present
+                    • Convert tables to markdown format
+                    • Include captions if present
                 
                 4. Figures:
-                   • Include descriptions and bylines
+                    • Include descriptions and bylines
                 
                 5. Headers and Footers:
-                   • Exclude headers, footers, and page numbers
+                    • Exclude headers, footers, and page numbers
                 
                 Format the output as a JSON array of page objects."""
             ))
@@ -1436,4 +1541,4 @@ class ProcessorFactory:
 # Resolve forward references
 if not TYPE_CHECKING:
     DocumentProcessorType.__forward_arg__ = 'DocumentProcessor'
-    DocumentProcessorType._evaluate(globals(), None, recursive_guard=set())
+    DocumentProcessorType._evaluate(globals(), None, recursive_guard=frozenset())

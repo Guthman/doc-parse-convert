@@ -20,7 +20,7 @@ def demo_pdf_extraction():
         # Set these values if using AI-assisted extraction with Google Vertex AI
         # project_id="your-google-project-id", 
         # vertex_ai_location="us-central1",
-        # gemini_model_name="gemini-pro-vision",
+        # gemini_model_name="gemini-1.5-flash-002",
         # Use native extraction by default (faster, no AI costs)
         toc_extraction_strategy=ExtractionStrategy.NATIVE,
         content_extraction_strategy=ExtractionStrategy.NATIVE,

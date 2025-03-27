@@ -5,7 +5,7 @@ with open("requirements.txt") as f:
 
 setup(
     name="doc_parse_convert",
-    version="0.3.1",
+    version="0.4.0",
     author="Guthman",
     description="Utilities for document content extraction and conversion",
     long_description=open("README.md", "r").read(),
