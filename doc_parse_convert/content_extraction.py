@@ -287,11 +287,11 @@ class DocumentStructureExtractor:
                             "start_page": {"type": "INTEGER"},
                             "end_page": {"type": "INTEGER"},
                             "level": {"type": "INTEGER"},
-                            "logical_start_page": {"type": "INTEGER", "optional": True},
-                            "logical_end_page": {"type": "INTEGER", "optional": True},
-                            "section_type": {"type": "STRING", "optional": True},
-                            "identifier": {"type": "STRING", "optional": True},
-                            "children": {"type": "ARRAY", "optional": True}
+                            "logical_start_page": {"type": "INTEGER", "nullable": True},
+                            "logical_end_page": {"type": "INTEGER", "nullable": True},
+                            "section_type": {"type": "STRING", "nullable": True},
+                            "identifier": {"type": "STRING", "nullable": True},
+                            "children": {"type": "ARRAY", "nullable": True}
                         },
                         "required": ["title", "start_page", "end_page", "level"]
                     }
