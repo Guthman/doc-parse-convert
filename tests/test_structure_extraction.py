@@ -188,9 +188,15 @@ def test_ai_structure_extraction(pdf_sample_path, processing_config):
                 error_msg = f"AI extraction failed with error: {e.__class__.__name__}: {str(e)}"
                 if "InvalidArgument" in e.__class__.__name__:
                     error_msg += "\nPossible causes:"
-                    error_msg += "\n- Image size too large for API limits"
+                    error_msg += "\n- Image size too large or API limits reached"
                     error_msg += "\n- Too many images in single request"
-                    error_msg += "\n- Invalid response schema format"
+                    error_msg += "\n- Response schema too complex for API"
+                    error_msg += "\nSuggested fixes:"
+                    error_msg += "\n- Reduce number of pages processed (max_images parameter)"
+                    error_msg += "\n- Simplify schema further (fewer properties, shorter names)"
+                    error_msg += "\n- Make fewer properties required in the schema"
+                    error_msg += "\n- Remove nested structures like 'children' arrays"
+                    error_msg += "\n- Use a flattened schema with hierarchy reconstruction"
                     error_msg += f"\nCheck debug directory: {temp_debug_dir}"
                 pytest.fail(error_msg)
             

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2025-03-28
+
+### Fixed
+
+- Fixed InvalidArgument 400 errors from Vertex AI API by completely redesigning the response schema approach:
+  - Removed nested structures (no more 'children' arrays)
+  - Used ultra-short property names (single-letter identifiers) to reduce payload size
+  - Eliminated required fields constraints
+  - Implemented post-processing to reconstruct hierarchical structure from flat data
+- Further reduced maximum number of pages processed to 20 for TOC extraction
+- Improved prompt instructions with specific field name guidance
+- Added additional error diagnostics mentioning structure simplification
+- Implemented hierarchy reconstruction algorithm to rebuild document tree from flat data
+
+## [0.5.1] - 2025-03-27
+
+### Fixed
+
+- Fixed InvalidArgument 400 errors from Vertex AI API by simplifying response schemas
+- Limited maximum number of pages processed to 30 to avoid oversized requests
+- Simplified property names in response schema to reduce complexity
+- Improved error diagnostics for API request issues
+- Reduced number of required fields in response schema
+- Updated prompt instructions for better AI response compatibility
+
 ## [0.5.0] - 2025-03-27
 
 ### Added

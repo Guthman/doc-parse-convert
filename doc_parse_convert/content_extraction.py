@@ -273,7 +273,13 @@ class DocumentStructureExtractor:
         
         # Define a more comprehensive prompt for structure extraction
         parts = []
-        for i, img in enumerate(images):
+        
+        # Limit number of images to process (preventing request size issues)
+        # max_images = min(len(images), 30)  # Process at most 30 pages to avoid oversized requests
+        max_images = 1000
+        logger.info(f"Using {max_images} out of {len(images)} pages for structure extraction")
+        
+        for i, img in enumerate(images[:max_images]):
             try:
                 parts.append(Part.from_data(data=img["data"], mime_type=img["_mime_type"]))
             except Exception as e:
@@ -292,32 +298,20 @@ class DocumentStructureExtractor:
                 """Analyze this document and extract its hierarchical structure. 
                 Identify all sections and subsections with their titles, page numbers, and levels.
                 
-                1. Main Title: Extract the document's main title.
-                
-                2. Sections: For each section and subsection:
-                   - Extract the exact title text
-                   - Identify starting page number (1-based)
-                   - Identify ending page number (1-based)
-                   - Determine section level (1 for top-level sections, 2+ for subsections)
-                   - Include any section identifiers or numbers
-                
-                3. Hierarchy: Maintain the proper hierarchical relationship between sections,
-                   with child sections properly nested under their parents.
-                
                 Format your response as a JSON object with this structure:
                 {
                   "title": "Document Title",
                   "sections": [
                     {
                       "title": "Section 1 Title",
-                      "start_page": 1,
-                      "end_page": 10,
+                      "start": 1,
+                      "end": 10,
                       "level": 1,
                       "children": [
                         {
-                          "title": "Subsection 1.1 Title",
-                          "start_page": 2,
-                          "end_page": 5,
+                          "title": "Subsection 1.1",
+                          "start": 2,
+                          "end": 5,
                           "level": 2,
                           "children": []
                         }
@@ -336,7 +330,7 @@ class DocumentStructureExtractor:
             temperature=0.1  # Low temperature for more deterministic results
         )
         
-        # Define response schema
+        # Define simplified response schema (with shorter property names)
         response_schema = {
             "type": "OBJECT",
             "properties": {
@@ -347,26 +341,46 @@ class DocumentStructureExtractor:
                         "type": "OBJECT",
                         "properties": {
                             "title": {"type": "STRING"},
-                            "start_page": {"type": "INTEGER"},
-                            "end_page": {"type": "INTEGER"},
-                            "level": {"type": "INTEGER"},
-                            "children": {"type": "ARRAY"}
-                        },
-                        "required": ["title", "start_page", "level"]
+                            "start": {"type": "INTEGER"},
+                            "end": {"type": "INTEGER"},
+                            "level": {"type": "INTEGER"}
+                        }
                     }
                 }
             },
-            "required": ["title", "sections"]
+            "required": ["title"]
         }
         
         # Call AI with retry
         try:
             logger.debug("Calling AI model to extract document structure")
+            
+            # Define a very simple schema with minimal nesting and property validation
+            simplified_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "title": {"type": "STRING"},
+                    "sections": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "title": {"type": "STRING"},
+                                "start": {"type": "INTEGER"},
+                                "end": {"type": "INTEGER"},
+                                "level": {"type": "INTEGER"}
+                            }
+                        }
+                    }
+                }
+            }
+            
+            # Try with minimal schema to avoid InvalidArgument errors
             response = self.ai_client._call_model_with_retry(
                 parts,
                 generation_config,
                 response_mime_type="application/json",
-                response_schema=response_schema
+                response_schema=simplified_schema
             )
             
             # Parse the response
@@ -376,44 +390,74 @@ class DocumentStructureExtractor:
             root.title = structure_data.get("title", "Document Root")
             
             # Helper function to recursively build structure
-            def build_structure(section_data, parent_level=0):
-                sections = []
+            # This function now has to handle both flattened and nested data
+            def build_structure(section_data):
+                # Create a map of sections by level and start page for reconstruction
+                sections_by_id = {}
+                all_sections = []
+                
+                # First pass: create all sections
                 for item in section_data:
                     # Validate and adjust page numbers
-                    start_page = max(0, item.get("start_page", 1) - 1)  # Convert to 0-based
-                    end_page = item.get("end_page")
+                    start_page = max(0, item.get("start", 1) - 1)  # Convert to 0-based
+                    end_page = item.get("end")
                     if end_page is not None:
                         end_page = max(start_page, end_page - 1)  # Convert to 0-based
                     
+                    level = item.get("level", 1)
+                    
+                    # Create the section
                     section = DocumentSection(
                         title=item["title"],
                         start_page=start_page,
                         end_page=end_page,
-                        level=item["level"],
-                        logical_start_page=item.get("logical_start_page"),
-                        logical_end_page=item.get("logical_end_page"),
-                        section_type=item.get("section_type"),
-                        identifier=item.get("identifier")
+                        level=level
                     )
                     
-                    # Process children if any
-                    if "children" in item and item["children"]:
-                        section.children = build_structure(item["children"], item["level"])
+                    # Store in our maps
+                    section_id = f"{level}_{start_page}"
+                    sections_by_id[section_id] = section
+                    all_sections.append(section)
+                
+                # Sort sections by level (ascending) and start page
+                all_sections.sort(key=lambda s: (s.level, s.start_page))
+                
+                # Infer hierarchy - this is the magic to reconstruct the tree structure
+                top_level_sections = []
+                for section in all_sections:
+                    if section.level == 1:
+                        top_level_sections.append(section)
+                        continue
                         
-                    sections.append(section)
-                return sections
+                    # Find a parent for this section
+                    parent = None
+                    for potential_parent in reversed(all_sections):
+                        if (potential_parent.level < section.level and 
+                            potential_parent.start_page <= section.start_page and
+                            (potential_parent.end_page is None or 
+                             potential_parent.end_page >= section.end_page)):
+                            parent = potential_parent
+                            break
+                    
+                    if parent:
+                        parent.add_child(section)
+                    else:
+                        # If no parent found, add to top level
+                        top_level_sections.append(section)
+                
+                return top_level_sections
             
             # Build the complete structure
             root.children = build_structure(structure_data.get("sections", []))
             
-            # Verify top level sections have end_page values
-            for section in root.children:
+            # Set any missing end_page values
+            # First, sort top-level sections by start page
+            root.children.sort(key=lambda s: s.start_page)
+            
+            for i, section in enumerate(root.children):
                 if section.end_page is None:
-                    # If end_page is missing, use either the next section's start_page - 1
-                    # or the document's last page
-                    next_section_idx = root.children.index(section) + 1
-                    if next_section_idx < len(root.children):
-                        section.end_page = root.children[next_section_idx].start_page - 1
+                    if i < len(root.children) - 1:
+                        section.end_page = root.children[i + 1].start_page - 1
                     else:
                         section.end_page = self.doc.page_count - 1
             
@@ -434,6 +478,7 @@ class DocumentStructureExtractor:
                 logger.error("- Images too large or too many images in the request")
                 logger.error("- Malformed request structure or invalid parameters")
                 logger.error("- Model limitations or incompatible response schema")
+                logger.error("Attempt to use a smaller subset of pages or simplify the schema further")
                 
                 # Save debug information if enabled
                 debug_dir = os.environ.get("AI_DEBUG_DIR")
@@ -982,10 +1027,10 @@ class ImageConverter:
             # Estimate reasonable quality based on page count to prevent oversized requests
             # Adjust quality down if we have many pages to process
             adjusted_quality = image_quality
-            if num_pages > 50:
-                adjusted_quality = min(image_quality, 200)  # Medium quality for many pages
-            if num_pages > 100:
-                adjusted_quality = min(image_quality, 150)  # Lower quality for very many pages
+            # if num_pages > 50:
+            #     adjusted_quality = min(image_quality, 200)  # Medium quality for many pages
+            # if num_pages > 100:
+            #     adjusted_quality = min(image_quality, 150)  # Lower quality for very many pages
             
             if adjusted_quality != image_quality:
                 logger.info(f"Adjusting image quality from {image_quality} to {adjusted_quality} DPI due to large page count ({num_pages})")
@@ -1152,8 +1197,8 @@ class AIClient:
                     if hasattr(part, 'data') and part.data:
                         part_size = len(part.data)
                         total_size += part_size
-                        if part_size > 20 * 1024 * 1024:  # 20MB
-                            logger.error(f"Image part {i} exceeds 20MB limit: {part_size / (1024 * 1024):.2f}MB")
+                        if part_size > 50 * 1024 * 1024:  # 50MB
+                            logger.error(f"Image part {i} exceeds 50MB limit: {part_size / (1024 * 1024):.2f}MB")
                 
                 logger.debug(f"Total request size: {total_size / (1024 * 1024):.2f}MB")
             
@@ -1200,24 +1245,30 @@ class AIClient:
             logger.error("AI model not initialized")
             raise ValueError("AI model not initialized")
 
+        # Ultra-simplified schema with just the bare essentials
+        # This minimalist approach avoids Vertex AI schema complexity limitations
         response_schema = {
             "type": "ARRAY",
             "items": {
                 "type": "OBJECT",
                 "properties": {
-                    "chapter": {"type": "STRING"},
-                    "page": {"type": "INTEGER"},
-                    "level": {"type": "INTEGER"}
-                },
-                "required": ["chapter", "page"]
+                    "t": {"type": "STRING"},     # Ultra-short property name for "title"
+                    "p": {"type": "INTEGER"},    # Ultra-short property name for "page"
+                    "l": {"type": "INTEGER"}     # Ultra-short property name for "level"
+                }
             }
         }
 
+        # Limit number of images to process (preventing request size issues)
+        # max_images = min(len(images), 20)  # Process at most 20 pages to reduce API payload size
+        max_images = 1000
+        logger.info(f"Using {max_images} out of {len(images)} pages for TOC extraction")
+        
         # Create Part objects from image data
         parts = []
-        for i, img in enumerate(images):
+        for i, img in enumerate(images[:max_images]):
             try:
-                logger.debug(f"Processing image {i + 1}/{len(images)}")
+                logger.debug(f"Processing image {i + 1}/{max_images}")
                 parts.append(Part.from_data(data=img["data"], mime_type=img["_mime_type"]))
             except Exception as e:
                 logger.warning(f"Failed to process image {i + 1}: {str(e)}")
@@ -1229,29 +1280,17 @@ class AIClient:
 
         logger.debug("Adding instruction text to parts")
         parts.append(Part.from_text(
-            """Extract text VERBATIM from these images and format all output in markdown. Preserve the original document structure and formatting. REPRODUCE ALL TEXT WORD FOR WORD, DON'T PARAPHRASE.
-
-            1. Main Chapter Text:
-                • Extract and format the main text as markdown
-                • Preserve all original formatting and structure
-                • Output as 'chapter_text' in the response
+            """Extract the table of contents from this document. Find all chapter titles and their page numbers.
+            Format the output as a JSON array of chapters, where each item has these fields:
+            - "t": The chapter title text (string)
+            - "p": The page number where the chapter starts (number)
+            - "l": The hierarchy level, where 1 is top level, 2 is subchapter, etc. (number)
             
-            2. Supplemental Elements:
-                • Extract text boxes, side notes, and callouts
-                • Format their content in markdown as well
-                • Label with appropriate type
-            
-            3. Tables:
-                • Convert tables to markdown format
-                • Include captions if present
-            
-            4. Figures:
-                • Include descriptions and bylines
-            
-            5. Headers and Footers:
-                • Exclude headers, footers, and page numbers
-            
-            Format the output as a JSON array of page objects."""
+            Important notes:
+            - Use exactly these field names: t, p, l
+            - Keep structure simple and flat (a plain array of objects)
+            - Capture all chapters and sections you can find
+            """
         ))
 
         generation_config = GenerationConfig(
@@ -1283,10 +1322,15 @@ class AIClient:
                     
                 try:
                     logger.debug(f"Processing chapter item {i + 1}")
+                    # Map shortened property names to our internal names
+                    title = str(item.get("t", "")).strip()
+                    page = int(item.get("p", 1))
+                    level = int(item.get("l", 1))
+                    
                     chapters.append(Chapter(
-                        title=str(item.get("chapter", "")).strip(),
-                        start_page=int(item.get("page", 1)) - 1,
-                        level=int(item.get("level", 1))
+                        title=title,
+                        start_page=page - 1,  # Convert to 0-based
+                        level=level
                     ))
                 except (KeyError, ValueError, TypeError) as e:
                     logger.warning(f"Failed to process chapter item {i + 1}: {str(e)}")
@@ -1319,6 +1363,15 @@ class AIClient:
             except Exception:
                 pass
             logger.debug(f"Raw response: {response_text}")
+            
+            # Additional diagnostics for InvalidArgument errors
+            if 'InvalidArgument' in e.__class__.__name__:
+                logger.error("API request might contain invalid arguments. This could be due to:")
+                logger.error("- Images too large or too many images in the request")
+                logger.error("- Malformed request structure or invalid parameters")
+                logger.error("- Model limitations or incompatible response schema")
+                logger.error("Try with fewer pages or further simplify the schema")
+            
             return []
 
 

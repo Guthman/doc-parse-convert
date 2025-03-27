@@ -3,7 +3,7 @@
 A package for document parsing and conversion.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.2"
 
 # Expose key modules and classes
 from doc_parse_convert.content_extraction import (
