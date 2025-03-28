@@ -6,13 +6,10 @@ import pytest
 import os
 from pathlib import Path
 
-from doc_parse_convert.content_extraction import (
-    ProcessorFactory,
-    PDFProcessor,
-    ProcessingConfig,
-    ExtractionStrategy,
-    DocumentStructureExtractor
-)
+from doc_parse_convert.utils.factory import ProcessorFactory
+from doc_parse_convert.extraction.pdf import PDFProcessor
+from doc_parse_convert.config import ProcessingConfig, ExtractionStrategy
+from doc_parse_convert.extraction.structure import DocumentStructureExtractor
 
 
 def test_processor_factory_with_pdf(pdf_sample_path, processing_config):

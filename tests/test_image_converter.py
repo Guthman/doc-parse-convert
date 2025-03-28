@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 import fitz  # PyMuPDF
 
-from doc_parse_convert.content_extraction import ImageConverter
+from doc_parse_convert.utils.image import ImageConverter
 
 
 @pytest.fixture

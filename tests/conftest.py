@@ -6,12 +6,10 @@ import os
 import pytest
 from pathlib import Path
 
-from doc_parse_convert.content_extraction import (
-    ProcessingConfig,
-    ExtractionStrategy,
-    ProcessorFactory,
-    AIClient
-)
+# Import directly from the modules instead of content_extraction
+from doc_parse_convert.config import ProcessingConfig, ExtractionStrategy
+from doc_parse_convert.utils.factory import ProcessorFactory
+from doc_parse_convert.ai.client import AIClient
 
 
 @pytest.fixture(scope="session")

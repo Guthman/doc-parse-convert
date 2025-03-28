@@ -7,13 +7,11 @@ import os
 import fitz
 from pathlib import Path
 
-from doc_parse_convert.content_extraction import (
-    AIClient,
-    PDFProcessor,
-    ImageConverter,
-    Chapter,
-    ExtractionStrategy
-)
+from doc_parse_convert.ai.client import AIClient
+from doc_parse_convert.extraction.pdf import PDFProcessor
+from doc_parse_convert.utils.image import ImageConverter
+from doc_parse_convert.models.document import Chapter
+from doc_parse_convert.config import ExtractionStrategy
 
 
 def test_ai_client_initialization(processing_config):
@@ -54,7 +52,8 @@ def test_extract_structure_from_images(ai_client, pdf_sample_path):
 def test_content_extraction_with_native(pdf_sample_path):
     """Test content extraction with NATIVE strategy."""
     # Create config with explicit NATIVE strategy
-    from doc_parse_convert.content_extraction import ProcessingConfig, ProcessorFactory, Chapter
+    from doc_parse_convert.config import ProcessingConfig
+    from doc_parse_convert.utils.factory import ProcessorFactory
     config = ProcessingConfig(
         toc_extraction_strategy=ExtractionStrategy.NATIVE,
         content_extraction_strategy=ExtractionStrategy.NATIVE
@@ -129,7 +128,7 @@ def test_content_extraction_with_ai(pdf_sample_path, processing_config):
     processing_config.content_extraction_strategy = ExtractionStrategy.AI
     
     # Create processor with this config
-    from doc_parse_convert.content_extraction import ProcessorFactory, Chapter
+    from doc_parse_convert.utils.factory import ProcessorFactory
     processor = ProcessorFactory.create_processor(pdf_sample_path, processing_config)
     
     try:
@@ -197,7 +196,7 @@ def test_content_extraction_with_ai_toc(pdf_sample_path, processing_config):
     processing_config.content_extraction_strategy = ExtractionStrategy.AI
     
     # Create processor with this config
-    from doc_parse_convert.content_extraction import ProcessorFactory
+    from doc_parse_convert.utils.factory import ProcessorFactory
     processor = ProcessorFactory.create_processor(pdf_sample_path, processing_config)
     
     try:

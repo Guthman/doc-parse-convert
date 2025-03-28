@@ -1,4 +1,4 @@
-google-cloud-aiplatform
+google-cloud-aiplatform==1.86.0
 pymupdf
 google-api-core
 google-auth

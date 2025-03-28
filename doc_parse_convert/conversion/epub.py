@@ -1,120 +1,22 @@
-from pathlib import Path
-import subprocess
+"""
+EPUB document conversion utilities.
+"""
+
 import io
 import zipfile
 import tempfile
 import shutil
 import base64
-import json
-import requests
-from requests import Response
+import subprocess
+from pathlib import Path
+from typing import List, Optional, Union
+
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
-from google.oauth2 import service_account
-import google.auth.transport.requests
 
 
-def get_gcs_token(service_account_json: str) -> str:
-    """
-    Get an access token from a service account JSON string.
-    
-    Args:
-        service_account_json (str): Service account credentials JSON as a string
-        
-    Returns:
-        str: Access token for GCS API requests
-    """
-    # Parse the service account JSON string
-    credentials_info = json.loads(service_account_json)
-    
-    # Create credentials object
-    credentials = service_account.Credentials.from_service_account_info(
-        credentials_info,
-        scopes=['https://www.googleapis.com/auth/devstorage.read_write']
-    )
-    
-    # Get token
-    auth_req = google.auth.transport.requests.Request()
-    credentials.refresh(auth_req)
-    
-    return credentials.token
-
-
-def upload_to_gcs(file_path: str | Path, service_account_json: str, bucket_name: str) -> str:
-    """
-    Uploads a file to Google Cloud Storage using the JSON API and returns the public URL.
-    
-    Args:
-        file_path (str | Path): Path to the file to upload
-        service_account_json (str): Service account credentials JSON as a string
-        bucket_name (str): GCS bucket to upload to
-        
-    Returns:
-        str: The public URL for accessing the uploaded file
-    """
-    upload_url = f"https://storage.googleapis.com/upload/storage/v1/b/{bucket_name}/o"
-    
-    access_token = get_gcs_token(service_account_json)
-    
-    with open(file_path, 'rb') as f:
-        file_content = f.read()
-            
-    params = {
-        'name': Path(file_path).name,
-        'uploadType': 'media'
-    }
-    
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'text/html',
-        'Content-Length': str(len(file_content))
-    }
-    
-    upload_response = requests.post(
-        upload_url,
-        params=params,
-        headers=headers,
-        data=file_content
-    )
-    
-    if upload_response.status_code != 200:
-        raise Exception(f"Failed to upload file: {upload_response.text}")
-        
-    # Return the public URL
-    object_name = Path(file_path).name
-    public_url = f"https://storage.googleapis.com/{bucket_name}/{object_name}"
-    return public_url
-
-
-def convert_html_to_markdown(file_path: str | Path, jina_api_token: str, service_account_json: str, bucket_name: str) -> Response:
-    """
-    Converts HTML to Markdown by first uploading to GCS and then using Jina API.
-    
-    Args:
-        file_path (str | Path): Path to the HTML file
-        jina_api_token (str): API token for authentication
-        service_account_json (str): Service account credentials JSON as a string
-        bucket_name (str): GCS bucket to upload to
-        
-    Returns:
-        Response: The API response from Jina
-    """
-    # Upload file to GCS and get public URL
-    gcs_url = upload_to_gcs(file_path, service_account_json, bucket_name)
-    
-    # Call Jina API with the GCS URL
-    url = f"https://r.jina.ai/{gcs_url}"
-    headers = {
-        'Authorization': f'Bearer {jina_api_token}',
-        'X-With-Generated-Alt': 'true'
-    }
-    
-    response = requests.get(url, headers=headers)
-    return response
-
-
-def convert_epub_to_html(file_path: str | Path) -> list[str]:
+def convert_epub_to_html(file_path: str | Path) -> List[str]:
     """
     Convert EPUB to HTML while preserving images as base64-encoded strings within the HTML.
     
@@ -173,7 +75,7 @@ def convert_epub_to_html(file_path: str | Path) -> list[str]:
 
 
 def convert_epub_to_txt(input_file_path: str | Path,
-                        output_file_path: str | Path = None) -> str | io.StringIO:
+                        output_file_path: str | Path = None) -> Union[str, io.StringIO]:
     """
     Converts an EPUB file to plain text.
 
@@ -231,7 +133,7 @@ def convert_epub_to_txt(input_file_path: str | Path,
     return content_str
 
 
-def extract_epub_css(epub_file: str | Path, css_output_dir: str | Path) -> Path | None:
+def extract_epub_css(epub_file: str | Path, css_output_dir: str | Path) -> Optional[Path]:
     """
     Extracts the first found CSS file from the EPUB archive.
 

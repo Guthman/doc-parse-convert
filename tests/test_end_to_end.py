@@ -7,19 +7,17 @@ import os
 import fitz
 from pathlib import Path
 
-from doc_parse_convert.content_extraction import (
-    ProcessingConfig,
-    ExtractionStrategy,
-    ProcessorFactory,
-    DocumentStructureExtractor,
-    Chapter
-)
+# Update imports to use the correct modules
+from doc_parse_convert.config import ProcessingConfig, ExtractionStrategy
+from doc_parse_convert.utils.factory import ProcessorFactory
+from doc_parse_convert.extraction.structure import DocumentStructureExtractor
+from doc_parse_convert.models.document import Chapter
+from doc_parse_convert.utils.image import ImageConverter
 
 
 def test_complete_pdf_processing_pipeline(pdf_sample_path, temp_output_dir):
     """Test the complete PDF processing pipeline with native extraction."""
     # Create config with NATIVE extraction strategies to avoid requiring AI credentials
-    from doc_parse_convert.content_extraction import ProcessingConfig, Chapter
     config = ProcessingConfig(
         toc_extraction_strategy=ExtractionStrategy.NATIVE,
         content_extraction_strategy=ExtractionStrategy.NATIVE
@@ -79,7 +77,7 @@ def test_complete_pdf_processing_pipeline(pdf_sample_path, temp_output_dir):
 
 def test_document_to_images_conversion(pdf_sample_path, temp_output_dir):
     """Test converting a document to images."""
-    from doc_parse_convert.content_extraction import ImageConverter
+    # Already imported at the top
     
     # Create output directories
     png_dir = temp_output_dir / "png"

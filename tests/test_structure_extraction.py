@@ -8,12 +8,10 @@ import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from doc_parse_convert.content_extraction import (
-    DocumentStructureExtractor,
-    DocumentSection,
-    ExtractionStrategy,
-    ProcessingConfig
-)
+from doc_parse_convert.extraction.structure import DocumentStructureExtractor
+from doc_parse_convert.models.document import DocumentSection
+from doc_parse_convert.config import ExtractionStrategy, ProcessingConfig
+from doc_parse_convert.utils.factory import ProcessorFactory
 
 
 def test_extract_structure(pdf_processor):
@@ -120,7 +118,6 @@ def test_native_structure_extraction(pdf_sample_path):
     )
     
     # Create processor with this config
-    from doc_parse_convert.content_extraction import ProcessorFactory
     processor = ProcessorFactory.create_processor(pdf_sample_path, config)
     
     try:
@@ -165,7 +162,6 @@ def test_ai_structure_extraction(pdf_sample_path, processing_config):
     processing_config.toc_extraction_strategy = ExtractionStrategy.AI
     
     # Create processor with this config
-    from doc_parse_convert.content_extraction import ProcessorFactory
     processor = ProcessorFactory.create_processor(pdf_sample_path, processing_config)
     
     try:

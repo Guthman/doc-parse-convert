@@ -7,7 +7,7 @@ import os
 import io
 from pathlib import Path
 
-from doc_parse_convert.content_conversion import (
+from doc_parse_convert.conversion.epub import (
     convert_epub_to_html,
     convert_epub_to_txt
 )
