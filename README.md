@@ -17,6 +17,33 @@ pip install git+https://github.com/Guthman/doc-parse-convert.git
 pip install -e .
 ```
 
+## System Dependencies
+
+In addition to Python dependencies, this library requires the following external tools for certain functionality:
+
+### Required for EPUB/PDF/HTML Conversion
+
+- **Pandoc**: Used for EPUB to PDF conversion
+  - **Windows**: Install from [pandoc.org/installing.html](https://pandoc.org/installing.html) or using `choco install pandoc`
+  - **macOS**: Install using Homebrew: `brew install pandoc`
+  - **Linux**: Install using package manager: `apt-get install pandoc` or `yum install pandoc`
+
+- **wkhtmltopdf**: Used for HTML to PDF conversion
+  - **Windows**: Install from [wkhtmltopdf.org/downloads.html](https://wkhtmltopdf.org/downloads.html) or using `choco install wkhtmltopdf`
+  - **macOS**: Install using Homebrew: `brew install wkhtmltopdf`
+  - **Linux**: Install using package manager: `apt-get install wkhtmltopdf` or `yum install wkhtmltopdf`
+
+### Feature Dependency Matrix
+
+| Feature | Required System Dependencies |
+|---------|------------------------------|
+| PDF content extraction | None |
+| EPUB to HTML conversion | None |
+| EPUB to TXT conversion | None |
+| EPUB to PDF conversion | Pandoc |
+| HTML to PDF conversion | wkhtmltopdf |
+| HTML to Markdown conversion | None (but requires GCS bucket and Jina API credentials) |
+
 ## Configuration
 
 The utilities require various configuration values and credentials. These can be provided in several ways:
@@ -32,7 +59,7 @@ The utilities require various configuration values and credentials. These can be
 2. Processing Configuration:
    When using the document processors, provide a `ProcessingConfig` object with your settings:
    ```python
-   from doc_parse_convert.content_extraction import ProcessingConfig, ExtractionStrategy
+   from doc_parse_convert import ProcessingConfig, ExtractionStrategy
    
    config = ProcessingConfig(
        project_id="your-project-id",
@@ -71,52 +98,77 @@ This helps troubleshoot issues with the Vertex AI API, particularly "InvalidArgu
 
 ## Usage
 
+### PDF Content Extraction
+
 ```python
-# Extract content from PDF documents
-from doc_parse_convert.content_extraction import PDFProcessor, ProcessingConfig
+from doc_parse_convert import ProcessingConfig, ExtractionStrategy, PDFProcessor
 
 # Configure the processor
 config = ProcessingConfig(
-    project_id="your-project-id",
-    vertex_ai_location="your-location"
+    toc_extraction_strategy=ExtractionStrategy.NATIVE,
+    content_extraction_strategy=ExtractionStrategy.NATIVE
 )
 
 # Process a PDF file
 processor = PDFProcessor(config)
 processor.load("document.pdf")
-chapters = processor.get_table_of_contents()
 
-# Convert EPUB to other formats
-from doc_parse_convert.content_conversion import convert_epub_to_html, convert_epub_to_pdf
+# Extract table of contents
+chapters = processor.get_table_of_contents()
+for chapter in chapters:
+    print(f"{chapter.title} (pages {chapter.start_page+1}-{chapter.end_page+1})")
+
+# Extract content from a specific chapter
+chapter_content = processor.extract_chapter_text(chapters[0])
+
+# Don't forget to close the processor when finished
+processor.close()
+```
+
+### EPUB Conversion
+
+```python
+from doc_parse_convert import convert_epub_to_html, convert_epub_to_txt, convert_epub_to_pdf
 
 # Convert EPUB to HTML
 html_content = convert_epub_to_html("book.epub")
 
+# Convert EPUB to TXT
+text_content = convert_epub_to_txt("book.epub")
+
 # Convert EPUB to PDF
-pdf_path = convert_epub_to_pdf("book.epub", "output_folder")
+pdf_path = convert_epub_to_pdf("book.epub", output_folder="output_folder")
+```
 
-# Convert document pages to images (PNG or JPG)
-from doc_parse_convert.content_extraction import ImageConverter
+### Converting PDF Pages to Images
 
-# Iterate through pages using context manager
+```python
+from doc_parse_convert.utils.image import ImageConverter
+
+# Using context manager (recommended)
 with ImageConverter('document.pdf', format='png') as converter:
     for page_number, page_data in converter:
         with open(f'document_page_{page_number+1}.png', 'wb') as f:
             f.write(page_data)
 
-# Change format to JPG
+# Alternative approach
 converter = ImageConverter('document.pdf', format='jpg')
-for page_number, page_data in converter:
-    with open(f'document_page_{page_number+1}.jpg', 'wb') as f:
-        f.write(page_data)
+try:
+    for page_number, page_data in converter:
+        with open(f'document_page_{page_number+1}.jpg', 'wb') as f:
+            f.write(page_data)
+finally:
+    converter.close()
+```
 
-# Extract document structure with page ranges
-from doc_parse_convert.content_extraction import PDFProcessor, ProcessingConfig, DocumentStructureExtractor
+### Document Structure Extraction
+
+```python
+from doc_parse_convert import ProcessingConfig, PDFProcessor, DocumentStructureExtractor
 
 # Configure the processor
 config = ProcessingConfig(
-    project_id="your-project-id",
-    vertex_ai_location="your-location"
+    toc_extraction_strategy=ExtractionStrategy.NATIVE
 )
 
 # Process a PDF file
@@ -133,6 +185,24 @@ xml_structure = structure_extractor.export_structure("xml")
 
 # Extract text by sections
 section_texts = structure_extractor.extract_text_by_section("output_folder")
+```
+
+### Using the Processor Factory
+
+```python
+from doc_parse_convert import ProcessingConfig, ProcessorFactory
+
+# Configure processing options
+config = ProcessingConfig()
+
+# Automatically create the appropriate processor based on file type
+processor = ProcessorFactory.create_processor("document.pdf", config)
+
+# Use the processor
+chapters = processor.get_table_of_contents()
+
+# Always close the processor when done
+processor.close()
 ```
 
 ## Examples

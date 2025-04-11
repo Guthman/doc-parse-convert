@@ -3,7 +3,6 @@ Utilities for converting document pages to images.
 """
 
 import io
-import os
 from pathlib import Path
 from typing import List, Dict, Any
 

@@ -47,7 +47,9 @@ from doc_parse_convert import convert_epub_to_html
 
 ## Dependencies
 
-The package automatically installs all required dependencies listed in requirements.txt, including:
+### Python Dependencies
+
+The package automatically installs all required Python dependencies, including:
 
 - pymupdf (PyMuPDF)
 - google-cloud-aiplatform
@@ -55,3 +57,22 @@ The package automatically installs all required dependencies listed in requireme
 - tenacity
 - ebooklib
 - beautifulsoup4
+- requests
+
+### System Dependencies
+
+In addition to Python packages, certain functionality requires external tools:
+
+#### Required for EPUB/PDF/HTML Conversion
+
+- **Pandoc**: Used for EPUB to PDF conversion
+  - **Windows**: Install from [pandoc.org/installing.html](https://pandoc.org/installing.html) or using `choco install pandoc`
+  - **macOS**: Install using Homebrew: `brew install pandoc`
+  - **Linux**: Install using package manager: `apt-get install pandoc` or `yum install pandoc`
+
+- **wkhtmltopdf**: Used for HTML to PDF conversion
+  - **Windows**: Install from [wkhtmltopdf.org/downloads.html](https://wkhtmltopdf.org/downloads.html) or using `choco install wkhtmltopdf`
+  - **macOS**: Install using Homebrew: `brew install wkhtmltopdf`
+  - **Linux**: Install using package manager: `apt-get install wkhtmltopdf` or `yum install wkhtmltopdf`
+
+See the README.md for a complete feature-dependency matrix.

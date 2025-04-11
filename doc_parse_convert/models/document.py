@@ -4,7 +4,6 @@ Document structure models.
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, ForwardRef, TYPE_CHECKING
-import json
 
 # Use string annotation for forward reference
 if TYPE_CHECKING:

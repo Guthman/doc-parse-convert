@@ -4,10 +4,6 @@ End-to-end tests for the document processing pipeline.
 
 import pytest
 import os
-import fitz
-from pathlib import Path
-
-# Update imports to use the correct modules
 from doc_parse_convert.config import ProcessingConfig, ExtractionStrategy
 from doc_parse_convert.utils.factory import ProcessorFactory
 from doc_parse_convert.extraction.structure import DocumentStructureExtractor

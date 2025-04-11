@@ -5,7 +5,6 @@ Client for interacting with AI APIs (Vertex AI/Gemini).
 import os
 import json
 import datetime
-import logging
 from typing import List, Any
 
 from vertexai.generative_models import (

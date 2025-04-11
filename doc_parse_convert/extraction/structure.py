@@ -7,7 +7,6 @@ import re
 import json
 from typing import Any, Dict, Optional
 
-import fitz
 import xml.dom.minidom as minidom
 import xml.etree.ElementTree as ET
 
@@ -207,12 +206,16 @@ class DocumentStructureExtractor:
                     # Find a parent for this section
                     parent = None
                     for potential_parent in reversed(all_sections):
-                        if (potential_parent.level < section.level and 
-                            potential_parent.start_page <= section.start_page and
-                            (potential_parent.end_page is None or 
-                             potential_parent.end_page >= section.end_page)):
-                            parent = potential_parent
-                            break
+                        # Handle the case where either end_page is None
+                        if potential_parent.level < section.level and potential_parent.start_page <= section.start_page:
+                            # If either end_page is None, skip the end_page comparison
+                            if potential_parent.end_page is None or section.end_page is None:
+                                parent = potential_parent
+                                break
+                            # Only compare end_pages if both are not None
+                            elif potential_parent.end_page >= section.end_page:
+                                parent = potential_parent
+                                break
                     
                     if parent:
                         parent.add_child(section)

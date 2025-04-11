@@ -21,4 +21,4 @@ from doc_parse_convert.conversion import (
     convert_html_to_markdown
 )
 
-__version__ = "0.5.3"  # Updated to fix circular import issue
+__version__ = "0.5.4"  # Updated to fix TOC extraction and structure building issues

@@ -2,8 +2,6 @@
 Tests for content conversion functionality.
 """
 
-import pytest
-import os
 import io
 from pathlib import Path
 

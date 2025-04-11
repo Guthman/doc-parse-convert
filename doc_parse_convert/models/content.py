@@ -5,9 +5,6 @@ Document content models.
 from dataclasses import dataclass
 from typing import List, Optional
 
-# Import required for type hints
-from doc_parse_convert.models.document import Chapter
-
 
 @dataclass
 class Figure:

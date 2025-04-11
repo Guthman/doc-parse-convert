@@ -2,7 +2,6 @@
 Tests for the ImageConverter class.
 """
 
-import os
 import io
 import pytest
 from PIL import Image

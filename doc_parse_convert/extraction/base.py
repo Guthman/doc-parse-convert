@@ -3,7 +3,7 @@ Base classes for document extraction.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Any, Optional, TYPE_CHECKING, ForwardRef
+from typing import List, Any, TYPE_CHECKING, ForwardRef
 
 from doc_parse_convert.config import ProcessingConfig
 from doc_parse_convert.models.document import Chapter

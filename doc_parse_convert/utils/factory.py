@@ -3,7 +3,7 @@ Factory classes for creating document processors.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Type
+from typing import TYPE_CHECKING
 
 from doc_parse_convert.config import ProcessingConfig, logger
 from doc_parse_convert.extraction.base import DocumentProcessor

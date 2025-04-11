@@ -74,8 +74,9 @@ class PDFProcessor(DocumentProcessor):
             logger.info("Using native TOC extraction")
             toc = self.doc.get_toc()
             if not toc:
-                logger.error("No native TOC found in document")
-                raise ValueError("No native TOC found in document")
+                logger.warning("No native TOC found in document, returning empty list")
+                self._chapters_cache = []
+                return []
                 
             chapters = []
             for level, title, page in toc:
