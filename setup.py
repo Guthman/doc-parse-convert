@@ -15,7 +15,7 @@ setup(
         "google-api-core>=2.0.0,<3.0.0",
         "google-auth>=2.0.0,<3.0.0",
         "google-auth-oauthlib>=0.4.0,<1.0.0",
-        "pillow>=9.0.0,<10.0.0",
+        "pillow>=9.0.0,<12.0.0",
         "tenacity>=8.0.0,<9.0.0",
         "ebooklib>=0.17.0,<0.18.0",
         "beautifulsoup4>=4.9.0,<5.0.0",
