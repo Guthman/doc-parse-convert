@@ -55,10 +55,10 @@ class PDFProcessor(DocumentProcessor):
     def get_table_of_contents(self) -> List[Chapter]:
         """
         Extract the table of contents using the configured strategy without fallbacks.
-        
+
         Returns:
             List[Chapter]: Table of contents as a list of chapters
-            
+
         Raises:
             ValueError: If document not loaded or strategy is not supported
             Exception: If extraction fails
@@ -77,7 +77,7 @@ class PDFProcessor(DocumentProcessor):
                 logger.warning("No native TOC found in document, returning empty list")
                 self._chapters_cache = []
                 return []
-                
+
             chapters = []
             for level, title, page in toc:
                 if level == 1:  # Only top-level chapters
@@ -96,28 +96,28 @@ class PDFProcessor(DocumentProcessor):
             self._chapters_cache = chapters
             logger.info(f"Successfully extracted {len(chapters)} chapters using native method")
             return chapters
-            
+
         elif self.config.toc_extraction_strategy == ExtractionStrategy.AI:
             logger.info("Using AI for TOC extraction")
             if not self.ai_client or not self.ai_client.model:
                 logger.error("AI client not initialized")
                 raise ValueError("AI client not initialized")
-                
+
             images = ImageConverter.convert_to_images(
                 self.doc,
                 num_pages=self.config.max_pages_for_preview,
                 start_page=0
             )
             chapters = self.ai_client.extract_structure_from_images(images)
-            
+
             if not chapters:
                 logger.error("AI extraction failed to extract any chapters")
                 raise ValueError("AI extraction failed to extract any chapters")
-                
+
             self._chapters_cache = chapters
             logger.info(f"Successfully extracted {len(chapters)} chapters using AI method")
             return chapters
-            
+
         else:
             error_msg = f"Unsupported extraction strategy: {self.config.toc_extraction_strategy}"
             logger.error(error_msg)
@@ -231,7 +231,7 @@ class PDFProcessor(DocumentProcessor):
             try:
                 logger.debug("Calling AI model with retry")
                 response = self.ai_client._call_model_with_retry(
-                    parts, 
+                    parts,
                     generation_config,
                     response_mime_type="application/json",
                     response_schema=response_schema
@@ -249,17 +249,17 @@ class PDFProcessor(DocumentProcessor):
                             TextBox(content=tb["content"], type=tb["type"])
                             for tb in page_data.get("text_boxes", [])
                         ]
-                        
+
                         tables = [
                             Table(content=t["content"], caption=t.get("caption"))
                             for t in page_data.get("tables", [])
                         ]
-                        
+
                         figures = [
                             Figure(description=f.get("description"), byline=f.get("byline"))
                             for f in page_data.get("figures", [])
                         ]
-                        
+
                         pages.append(PageContent(
                             chapter_text=page_data["chapter_text"],
                             text_boxes=text_boxes,
@@ -290,32 +290,32 @@ class PDFProcessor(DocumentProcessor):
 
     def extract_chapters(self, chapter_indices: Optional[List[int]] = None) -> List[Chapter]:
         """Extract content from specified chapters.
-        
+
         Args:
             chapter_indices: List of chapter indices to extract. If None, extracts all chapters.
-            
+
         Returns:
             List of Chapter objects with their content populated.
         """
         if not self.doc:
             raise ValueError("Document not loaded")
-            
+
         # Use cached chapters if available, otherwise get them
         chapters = self.get_table_of_contents()
         if not chapters:
             raise ValueError("No chapters found in document")
-            
+
         # If no specific chapters requested, process all chapters
         if chapter_indices is None:
             chapter_indices = list(range(len(chapters)))
-            
+
         # Validate indices
         if not all(0 <= i < len(chapters) for i in chapter_indices):
             raise ValueError(f"Invalid chapter index. Valid range is 0-{len(chapters)-1}")
-            
+
         # Extract content for specified chapters
         for i in chapter_indices:
             chapter = chapters[i]
             chapter.content = self.extract_chapter_text(chapter)
-            
+
         return [chapters[i] for i in chapter_indices]

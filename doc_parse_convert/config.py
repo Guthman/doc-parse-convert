@@ -28,7 +28,7 @@ log_dir = os.environ.get('DOC_PARSE_CONVERT_LOG_DIR')
 if not log_dir:
     # Use a subdirectory in the system temp directory
     log_dir = os.path.join(tempfile.gettempdir(), 'doc_parse_convert_logs')
-    
+
 # Create log directory if it doesn't exist
 os.makedirs(log_dir, exist_ok=True)
 
@@ -69,16 +69,16 @@ class ProcessingConfig:
     gemini_model_name: Optional[str] = None
     service_account_file: Optional[str] = None
     use_application_default_credentials: bool = False
-    
+
     # GCS & Jina configuration for HTML to Markdown conversion
     jina_api_token: Optional[str] = None
     gcs_bucket_name: Optional[str] = None
     service_account_json: Optional[str] = None  # Raw JSON string of service account credentials
-    
+
     # Extraction strategy configuration
     toc_extraction_strategy: ExtractionStrategy = ExtractionStrategy.NATIVE  # Strategy for table of contents extraction
     content_extraction_strategy: ExtractionStrategy = ExtractionStrategy.NATIVE  # Strategy for chapter content extraction
-    
+
     # Processing configuration
     max_pages_for_preview: int = 200  # Default is to only look at first 200 pages
     image_quality: int = 300  # DPI for image conversion

@@ -19,14 +19,14 @@ class ProcessorFactory:
     @staticmethod
     def create_processor(file_path: str, config: ProcessingConfig) -> DocumentProcessor:
         """Create and initialize appropriate processor based on file extension.
-        
+
         Args:
             file_path: Path to the document file
             config: Processing configuration
-            
+
         Returns:
             Initialized document processor
-            
+
         Raises:
             ValueError: If file format is not supported
         """
@@ -43,7 +43,7 @@ class ProcessorFactory:
             error_msg = f"Unsupported file format: {ext}"
             logger.error(error_msg)
             raise ValueError(error_msg)
-            
+
         # Load the document
         processor.load(file_path)
         logger.info(f"Successfully created and loaded processor for {file_path}")

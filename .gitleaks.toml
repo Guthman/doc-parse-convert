@@ -1,0 +1,69 @@
+# Gitleaks configuration for doc_parse_convert
+# This file customizes secret detection for this project
+
+title = "Gitleaks config for doc_parse_convert"
+
+[extend]
+# Use the default Gitleaks rules as a base
+useDefault = true
+
+# Add custom rules specific to this project
+[[rules]]
+id = "google-service-account"
+description = "Google Service Account JSON"
+regex = '''(?i)("type":\s*"service_account")'''
+keywords = ["service_account", "private_key_id"]
+
+[[rules]]
+id = "jina-api-key"
+description = "Jina API Key"
+regex = '''jina_[a-zA-Z0-9]{32,}'''
+keywords = ["jina_api", "JINA_API_KEY"]
+
+[[rules]]
+id = "vertex-ai-project"
+description = "Potential GCP Project ID in code (review needed)"
+regex = '''(?i)(project[-_]?id["']?\s*[:=]\s*["'][a-z0-9-]{6,30}["'])'''
+keywords = ["project_id", "project-id"]
+
+# Allowlist for path-based exclusions
+[[allowlists]]
+description = "Allowlist for known false positives in test/example files"
+paths = [
+  # Test files with example/dummy credentials
+  '''tests/.*_example\.py''',
+  '''example\.py''',
+  # Documentation files
+  '''.*\.md''',
+  '''CLAUDE\.md''',
+  # Example environment files (templates, not real secrets)
+  '''\.env\.example''',
+  # IDE workspace files (gitignored, local only)
+  '''\.idea/.*''',
+  '''.vscode/.*''',
+]
+
+# Allowlist for placeholder patterns in documentation
+[[allowlists]]
+description = "Placeholder strings that look like secrets but aren't"
+regexes = [
+  # Example placeholders in documentation
+  '''your[-_]?api[-_]?key''',
+  '''your[-_]?project[-_]?id''',
+  '''your[-_]?service[-_]?account''',
+  # Common test/example values
+  '''example\.com''',
+  '''test[-_]?key''',
+  '''dummy[-_]?token''',
+]
+
+# Stopwords for entropy-based detection
+[[allowlists]]
+description = "Common words that might trigger false positives"
+stopwords = [
+  '''example''',
+  '''sample''',
+  '''test''',
+  '''dummy''',
+  '''placeholder''',
+]

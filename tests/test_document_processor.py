@@ -34,18 +34,18 @@ def test_pdf_processor_load(pdf_sample_path, processing_config):
 def test_get_table_of_contents(pdf_processor):
     """Test extracting table of contents from a PDF."""
     chapters = pdf_processor.get_table_of_contents()
-    
+
     # We don't check exact content as it depends on the AI, but we can check structure
     assert chapters is not None
     assert isinstance(chapters, list)
-    
+
     # If chapters were found, check their structure
     if chapters:
         for chapter in chapters:
             assert hasattr(chapter, 'title')
             assert hasattr(chapter, 'start_page')
             assert isinstance(chapter.start_page, int)
-            
+
             # End page might be None for the last chapter
             if chapter.end_page is not None:
                 assert isinstance(chapter.end_page, int)
@@ -56,20 +56,20 @@ def test_extract_chapter_text(pdf_processor):
     """Test extracting text from a chapter."""
     # First get the table of contents
     chapters = pdf_processor.get_table_of_contents()
-    
+
     # Skip if no chapters were found
     if not chapters:
         pytest.skip("No chapters found in the PDF")
-    
+
     # Extract content from the first chapter
     chapter_content = pdf_processor.extract_chapter_text(chapters[0])
-    
+
     # Check the structure of the extracted content
     assert chapter_content is not None
     assert hasattr(chapter_content, 'title')
     assert hasattr(chapter_content, 'pages')
     assert isinstance(chapter_content.pages, list)
-    
+
     # Check that pages contain content
     if chapter_content.pages:
         page = chapter_content.pages[0]
@@ -81,10 +81,10 @@ def test_extract_chapters(pdf_processor):
     """Test extracting multiple chapters."""
     # Extract the first chapter
     chapters = pdf_processor.extract_chapters([0])
-    
+
     assert chapters is not None
     assert isinstance(chapters, list)
-    
+
     if chapters:
         assert len(chapters) == 1
         chapter = chapters[0]
@@ -98,10 +98,10 @@ def test_split_by_chapters(pdf_processor, temp_output_dir):
     chapters = pdf_processor.get_table_of_contents()
     if not chapters:
         pytest.skip("No chapters found in the PDF")
-    
+
     # Split the PDF by chapters
     pdf_processor.split_by_chapters(str(temp_output_dir))
-    
+
     # Check that files were created
     files = list(temp_output_dir.glob("*.pdf"))
     assert len(files) > 0

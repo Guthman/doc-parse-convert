@@ -43,7 +43,7 @@ class AIClient:
             logger.debug(f"API Request - Generation config: {generation_config}")
             if response_schema:
                 logger.debug(f"API Request - Response schema: {response_schema}")
-                
+
             # For text parts, log the content (truncated if too long)
             for i, part in enumerate(parts):
                 if hasattr(part, 'text'):
@@ -62,7 +62,7 @@ class AIClient:
             base_temp = 0.0  # Default temperature if not specified
             if hasattr(generation_config, 'temperature'):
                 base_temp = generation_config.temperature
-            
+
             adjusted_temp = min(base_temp + (attempt * 0.1), 1.0)
             logger.debug(f"Attempt {attempt + 1}/10 with temperature {adjusted_temp:.2f}")
 
@@ -71,10 +71,10 @@ class AIClient:
                 'temperature': adjusted_temp,
                 'candidate_count': 1,  # Required for structured output
             }
-            
+
             if response_mime_type:
                 config_params['response_mime_type'] = response_mime_type
-            
+
             if response_schema:
                 config_params['response_schema'] = response_schema
 
@@ -103,7 +103,7 @@ class AIClient:
 
         except Exception as e:
             logger.error(f"Error during model call: {e.__class__.__name__} {str(e)}")
-            
+
             # Log detailed error information if available
             if hasattr(e, 'response'):
                 if hasattr(e.response, 'text'):
@@ -115,20 +115,20 @@ class AIClient:
                         logger.error(f"Error response JSON: {e.response.json()}")
                     except:
                         logger.error(f"Error response object: {e.response}")
-            
+
             # For Google API errors, extract more details
             if hasattr(e, 'details'):
                 logger.error(f"Error details: {e.details}")
             if hasattr(e, 'code'):
                 logger.error(f"Error code: {e.code}")
-            
+
             # Debug API request details for InvalidArgument errors
             if 'InvalidArgument' in e.__class__.__name__:
                 logger.error(f"API request might contain invalid arguments. Check image sizes and request structure.")
                 logger.debug(f"Using model: {self.config.gemini_model_name}")
                 logger.debug(f"Project ID: {self.config.project_id}")
                 logger.debug(f"Location: {self.config.vertex_ai_location}")
-                
+
                 # Check if any parts exceed size limits
                 total_size = 0
                 for i, part in enumerate(parts):
@@ -137,9 +137,9 @@ class AIClient:
                         total_size += part_size
                         if part_size > 50 * 1024 * 1024:  # 50MB
                             logger.error(f"Image part {i} exceeds 50MB limit: {part_size / (1024 * 1024):.2f}MB")
-                
+
                 logger.debug(f"Total request size: {total_size / (1024 * 1024):.2f}MB")
-            
+
             # Save problematic images to disk for debugging
             debug_dir = os.environ.get("AI_DEBUG_DIR")
             if debug_dir:
@@ -147,7 +147,7 @@ class AIClient:
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 debug_subdir = os.path.join(debug_dir, f"error_{timestamp}")
                 os.makedirs(debug_subdir, exist_ok=True)
-                
+
                 # Save debug info
                 with open(os.path.join(debug_subdir, "error_info.txt"), "w") as f:
                     f.write(f"Error: {e.__class__.__name__} - {str(e)}\n")
@@ -155,10 +155,10 @@ class AIClient:
                     f.write(f"Model: {self.config.gemini_model_name}\n")
                     f.write(f"Temperature: {adjusted_temp}\n")
                     f.write(f"Attempt: {attempt + 1}/10\n")
-                    
+
                     if response_schema:
                         f.write(f"\nResponse Schema:\n{json.dumps(response_schema, indent=2)}\n")
-                
+
                 # Save images
                 for i, part in enumerate(parts):
                     if hasattr(part, 'mime_type') and getattr(part, 'mime_type', '').startswith('image/'):
@@ -169,16 +169,16 @@ class AIClient:
                                 f.write(part.data)
                         except Exception as img_error:
                             logger.error(f"Failed to save debug image {i}: {str(img_error)}")
-                
+
                 logger.info(f"Saved debug information to {debug_subdir}")
-            
+
             # Re-raise to allow retry
             raise
 
     def extract_structure_from_images(self, images: List[dict]) -> List[Chapter]:
         """Extract structural information from document images using AI."""
         logger.info("Starting structure extraction from images")
-        
+
         if not self.model:
             logger.error("AI model not initialized")
             raise ValueError("AI model not initialized")
@@ -192,7 +192,7 @@ class AIClient:
         # max_images = min(len(images), 20)  # Process at most 20 pages to reduce API payload size
         max_images = 1000
         logger.info(f"Using {max_images} out of {len(images)} pages for TOC extraction")
-        
+
         # Create Part objects from image data
         parts = []
         for i, img in enumerate(images[:max_images]):
@@ -219,33 +219,33 @@ class AIClient:
         try:
             logger.debug("Calling AI model with retry")
             response = self._call_model_with_retry(
-                parts, 
+                parts,
                 generation_config,
                 response_mime_type="application/json",
                 response_schema=response_schema
             )
-            
+
             logger.debug("Parsing JSON response")
             response_text = response.text
             toc_data = json.loads(response_text)
-            
+
             if not isinstance(toc_data, list):
                 logger.error(f"Invalid response format: expected list, got {type(toc_data)}")
                 raise ValueError(f"Expected list response, got {type(toc_data)}")
-                
+
             chapters = []
             for i, item in enumerate(toc_data):
                 if not isinstance(item, dict):
                     logger.warning(f"Skipping invalid item {i} in response: {item}")
                     continue
-                    
+
                 try:
                     logger.debug(f"Processing chapter item {i + 1}")
                     # Map shortened property names to our internal names
                     title = str(item.get("t", "")).strip()
                     page = int(item.get("p", 1))
                     level = int(item.get("l", 1))
-                    
+
                     chapters.append(Chapter(
                         title=title,
                         start_page=page - 1,  # Convert to 0-based
@@ -257,11 +257,11 @@ class AIClient:
 
             # Set end pages
             logger.debug("Setting chapter end pages")
-            
+
             # Sort chapters by page number first, then by level if they appear on the same page
             # This handles cases where multiple chapters appear on the same page
             chapters.sort(key=lambda x: (x.start_page, x.level))
-            
+
             for i in range(len(chapters) - 1):
                 chapters[i].end_page = chapters[i + 1].start_page
 
@@ -269,9 +269,9 @@ class AIClient:
                 logger.warning("No valid chapters extracted from AI response")
             else:
                 logger.info(f"Successfully extracted {len(chapters)} chapters")
-                
+
             return chapters
-            
+
         except Exception as e:
             logger.error(f"Error processing AI response: {str(e)}")
             # Only try to log response text if response exists and has the text attribute
@@ -282,7 +282,7 @@ class AIClient:
             except Exception:
                 pass
             logger.debug(f"Raw response: {response_text}")
-            
+
             # Additional diagnostics for InvalidArgument errors
             if 'InvalidArgument' in e.__class__.__name__:
                 logger.error("API request might contain invalid arguments. This could be due to:")
@@ -290,5 +290,5 @@ class AIClient:
                 logger.error("- Malformed request structure or invalid parameters")
                 logger.error("- Model limitations or incompatible response schema")
                 logger.error("Try with fewer pages or further simplify the schema")
-            
+
             return []

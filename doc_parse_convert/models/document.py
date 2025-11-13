@@ -38,13 +38,13 @@ class DocumentSection:
     def __post_init__(self) -> None:
         if self.children is None:
             self.children = []
-            
+
     def add_child(self, child: "DocumentSection") -> None:
         """Add a child section to this section."""
         if self.children is None:
             self.children = []
         self.children.append(child)
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the section to a dictionary representation."""
         result = {
@@ -53,7 +53,7 @@ class DocumentSection:
             "end_page": self.end_page,
             "level": self.level,
         }
-        
+
         if self.logical_start_page is not None:
             result["logical_start_page"] = self.logical_start_page
         if self.logical_end_page is not None:
@@ -64,5 +64,5 @@ class DocumentSection:
             result["identifier"] = self.identifier
         if self.children:
             result["children"] = [child.to_dict() for child in self.children]
-            
+
         return result

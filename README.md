@@ -7,6 +7,12 @@ A collection of utilities for document content extraction and conversion, includ
 - Support for AI-assisted document content extraction
 - Hierarchical document structure extraction with page ranges
 
+## 🔒 Security
+
+This repository uses [Gitleaks](https://github.com/gitleaks/gitleaks) to prevent accidentally committing secrets. See [SECURITY.md](SECURITY.md) for our security policy and [GITLEAKS_SETUP.md](GITLEAKS_SETUP.md) for setup instructions.
+
+**Before contributing**: Install Gitleaks to scan for secrets automatically. See [INSTALLATION_INSTRUCTIONS.md](INSTALLATION_INSTRUCTIONS.md) for details.
+
 ## Installation
 
 ```bash
@@ -60,7 +66,7 @@ The utilities require various configuration values and credentials. These can be
    When using the document processors, provide a `ProcessingConfig` object with your settings:
    ```python
    from doc_parse_convert import ProcessingConfig, ExtractionStrategy
-   
+
    config = ProcessingConfig(
        project_id="your-project-id",
        vertex_ai_location="your-location",

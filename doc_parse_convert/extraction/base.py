@@ -22,7 +22,7 @@ class DocumentProcessor(ABC):
 
     def __init__(self, config: ProcessingConfig):
         """Initialize the document processor.
-        
+
         Args:
             config: Configuration for document processing
         """
@@ -36,7 +36,7 @@ class DocumentProcessor(ABC):
         from doc_parse_convert.ai.client import AIClient
         import vertexai
         from google.oauth2 import service_account
-        
+
         if not self.config.project_id or not self.config.vertex_ai_location:
             from doc_parse_convert.config import logger
             logger.debug("No project ID or location provided, skipping AI client initialization")
@@ -59,7 +59,7 @@ class DocumentProcessor(ABC):
                     location=self.config.vertex_ai_location,
                     credentials=credentials
                 )
-            
+
             # Initialize the AI client
             self.ai_client = AIClient(self.config)
             from doc_parse_convert.config import logger

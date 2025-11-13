@@ -6,7 +6,7 @@ Response schemas for AI model calls.
 def get_toc_response_schema() -> dict:
     """
     Get the response schema for table of contents extraction.
-    
+
     Returns:
         dict: TOC response schema
     """
@@ -26,7 +26,7 @@ def get_toc_response_schema() -> dict:
 def get_content_extraction_schema() -> dict:
     """
     Get the response schema for content extraction.
-    
+
     Returns:
         dict: Content extraction response schema
     """
@@ -78,7 +78,7 @@ def get_content_extraction_schema() -> dict:
 def get_structure_extraction_schema() -> dict:
     """
     Get the response schema for document structure extraction.
-    
+
     Returns:
         dict: Document structure response schema
     """

@@ -19,16 +19,16 @@ from bs4 import BeautifulSoup
 def convert_epub_to_html(file_path: str | Path) -> List[str]:
     """
     Convert EPUB to HTML while preserving images as base64-encoded strings within the HTML.
-    
+
     Args:
         file_path (str | Path): Path to the EPUB file
-        
+
     Returns:
         list[str]: List of HTML strings, with images encoded as base64 within the HTML
     """
     book = epub.read_epub(file_path)
     output_html = []
-    
+
     # Create a mapping of image IDs to their base64 encoded content
     image_map = {}
     for item in book.get_items():
@@ -53,14 +53,14 @@ def convert_epub_to_html(file_path: str | Path) -> List[str]:
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
             content = item.get_content()
             soup = BeautifulSoup(content, 'html.parser')
-            
+
             # Find all images and replace src with base64 data
             for img in soup.find_all('img'):
                 src = img.get('src')
                 if src:
                     # Remove any parent directory references
                     clean_src = src.replace('../', '').replace('./', '')
-                    
+
                     # Try different path variations
                     if clean_src in image_map:
                         img['src'] = image_map[clean_src]
@@ -68,9 +68,9 @@ def convert_epub_to_html(file_path: str | Path) -> List[str]:
                         img['src'] = image_map[Path(clean_src).name]
                     elif clean_src.replace('images/', '') in image_map:
                         img['src'] = image_map[clean_src.replace('images/', '')]
-            
+
             output_html.append(str(soup))
-            
+
     return output_html
 
 

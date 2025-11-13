@@ -40,23 +40,23 @@ def epub_sample_path(test_files_dir):
 @pytest.fixture(scope="session")
 def vertex_credentials():
     """Get Vertex AI credentials from environment variables.
-    
+
     Skips tests if credentials are not available.
     """
     creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if not creds_path:
         pytest.skip("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")
-    
+
     if not os.path.exists(creds_path):
         pytest.skip(f"Credentials file not found at {creds_path}")
-        
+
     return creds_path
 
 
 @pytest.fixture(scope="session")
 def jina_api_key():
     """Get Jina API key from environment variables.
-    
+
     Skips tests if API key is not available.
     """
     api_key = os.environ.get("JINA_API_KEY")
@@ -72,9 +72,9 @@ def processing_config(vertex_credentials):
     import json
     with open(vertex_credentials, 'r') as f:
         creds_data = json.load(f)
-    
+
     project_id = creds_data.get('project_id')
-    
+
     # Create and return the config
     config = ProcessingConfig(
         project_id=project_id,
