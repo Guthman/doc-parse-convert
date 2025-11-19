@@ -32,7 +32,7 @@ class AIClient:
     def _call_model_with_retry(
         self,
         parts: List[Part],
-        generation_config: GenerationConfig,
+        temperature: float = 0.0,
         response_mime_type: str = None,
         response_schema: dict = None,
     ) -> Any:
@@ -61,13 +61,13 @@ class AIClient:
             try:
                 # Log request details
                 logger.debug(f"API Request - Parts count: {len(parts)}")
-                logger.debug(f"API Request - Generation config: {generation_config}")
+                logger.debug(f"API Request - Temperature: {temperature}")
                 if response_schema:
                     logger.debug(f"API Request - Response schema present")
 
                 # Build generation config
                 config_params = {
-                    'temperature': generation_config.temperature,
+                    'temperature': temperature,
                     'candidate_count': 1,
                 }
 
@@ -175,7 +175,7 @@ class AIClient:
     def _process_image_batch(self, batch: List[dict], response_schema: dict) -> List[Chapter]:
         """Process a batch of images for structure extraction."""
         from doc_parse_convert.ai.prompts import get_toc_prompt
-        from vertexai.generative_models import Part, GenerationConfig
+        from vertexai.generative_models import Part
 
         # Create Part objects from batch
         parts = []
@@ -195,13 +195,11 @@ class AIClient:
         logger.debug("Adding instruction text to parts")
         parts.append(Part.from_text(get_toc_prompt()))
 
-        generation_config = GenerationConfig(temperature=0.0)
-
         try:
             logger.debug("Calling AI model with retry")
             response = self._call_model_with_retry(
                 parts,
-                generation_config,
+                temperature=0.0,
                 response_mime_type="application/json",
                 response_schema=response_schema
             )

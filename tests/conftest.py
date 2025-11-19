@@ -79,7 +79,7 @@ def processing_config(vertex_credentials):
     config = ProcessingConfig(
         project_id=project_id,
         vertex_ai_location="us-central1",  # Default location, adjust if needed
-        gemini_model_name="gemini-1.5-flash-002",
+        gemini_model_name="gemini-2.5-flash",
         service_account_file=vertex_credentials,
         toc_extraction_strategy=ExtractionStrategy.AI,
         content_extraction_strategy=ExtractionStrategy.AI,

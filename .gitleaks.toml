@@ -39,6 +39,7 @@ paths = [
 regexes = [
   '''your-project-id''',
   '''your[-_]?project[-_]?id''',
+  '''your[-_]?project''',
 ]
 
 # Allowlist for path-based exclusions

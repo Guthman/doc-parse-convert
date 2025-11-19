@@ -70,7 +70,7 @@ The utilities require various configuration values and credentials. These can be
    config = ProcessingConfig(
        project_id="your-project-id",
        vertex_ai_location="your-location",
-       gemini_model_name="gemini-1.5-flash-002",
+       gemini_model_name="gemini-2.5-flash",
        use_application_default_credentials=True,
        toc_extraction_strategy=ExtractionStrategy.NATIVE,
        content_extraction_strategy=ExtractionStrategy.AI
