@@ -48,11 +48,18 @@ class PDFProcessor(DocumentProcessor):
         """
         logger.info(f"Loading PDF")
         try:
+            # Preserve original path if string or Path was passed
+            if isinstance(file_input, str):
+                self.file_path = file_input
+            elif isinstance(file_input, Path):
+                self.file_path = str(file_input)
+            else:
+                self.file_path = getattr(file_input, 'name', '<stream>')
+
             file_obj = validate_file_input(file_input)
             # Read content and open as stream to support file-like objects
             content = file_obj.read()
             self.doc = fitz.open(stream=content, filetype="pdf")
-            self.file_path = getattr(file_input, 'name', '<stream>')
             self._chapters_cache = None
             logger.info(f"Successfully loaded PDF with {self.doc.page_count} pages")
         except Exception as e:

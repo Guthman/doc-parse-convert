@@ -240,8 +240,11 @@ def test_convert_to_images_static_method(pdf_sample_path):
     doc = None
     try:
         doc = fitz.open(pdf_sample_path)
-        # Convert 3 pages to images
-        images = ImageConverter.convert_to_images(doc, num_pages=3, start_page=0)
+        # Convert 3 pages to images (returns a generator)
+        images_gen = ImageConverter.convert_to_images(doc, num_pages=3, start_page=0)
+
+        # Convert generator to list for testing
+        images = list(images_gen)
 
         # Verify the result
         assert images is not None

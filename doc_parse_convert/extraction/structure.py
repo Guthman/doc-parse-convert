@@ -404,8 +404,8 @@ class DocumentStructureExtractor:
                 """Convert a DocumentSection to XML element with proper escaping."""
                 section_elem = ET.SubElement(parent_elem, "section")
 
-                # Escape all user-controlled content
-                section_elem.set("title", escape(section.title))
+                # ElementTree automatically escapes special characters in attribute values
+                section_elem.set("title", section.title)
                 section_elem.set("start_page", str(section.start_page))
                 section_elem.set("end_page", str(section.end_page) if section.end_page is not None else "")
                 section_elem.set("level", str(section.level))
@@ -415,9 +415,9 @@ class DocumentStructureExtractor:
                 if section.logical_end_page is not None:
                     section_elem.set("logical_end_page", str(section.logical_end_page))
                 if section.section_type:
-                    section_elem.set("section_type", escape(section.section_type))
+                    section_elem.set("section_type", section.section_type)
                 if section.identifier:
-                    section_elem.set("identifier", escape(section.identifier))
+                    section_elem.set("identifier", section.identifier)
 
                 for child in section.children:
                     section_to_xml(child, section_elem)

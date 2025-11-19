@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="doc_parse_convert",
-    version="0.5.4",
+    version="0.6.0",
     author="Guthman",
     description="Utilities for document content extraction and conversion",
     long_description=open("README.md", "r").read(),
