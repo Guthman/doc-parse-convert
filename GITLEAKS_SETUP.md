@@ -39,7 +39,7 @@ sudo mv gitleaks /usr/local/bin/
 This will automatically scan for secrets before each commit.
 
 ```bash
-pip install pre-commit
+ip install pre-commit
 pre-commit install
 ```
 

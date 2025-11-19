@@ -4,7 +4,8 @@ Utilities for converting document pages to images.
 
 import io
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Generator
+import warnings
 
 import fitz  # PyMuPDF
 from PIL import Image
@@ -117,44 +118,48 @@ class ImageConverter:
         return self
 
     @staticmethod
-    def convert_to_images(document: Any, num_pages: int = 20, start_page: int = 0, image_quality: int = 300) -> List[Dict[str, Any]]:
-        """Convert document pages to images.
+    def convert_to_images(
+        document: Any,
+        num_pages: int = 20,
+        start_page: int = 0,
+        image_quality: int = 300
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Convert document pages to images using a generator (memory-efficient).
+
+        This function yields one image at a time instead of loading all images
+        into memory, making it suitable for large documents.
 
         Args:
-            document: Document to convert (e.g., PDF)
+            document: Document to convert (e.g., fitz.Document for PDFs)
             num_pages: Number of pages to convert
             start_page: Starting page number (0-based index)
             image_quality: DPI for image conversion (default: 300)
 
-        Returns:
-            List of dictionaries containing image data in format expected by Vertex AI
+        Yields:
+            Dict with 'data' (bytes) and '_mime_type' (str) keys
 
         Raises:
-            ValueError: If document type is not supported or conversion fails
-            NotImplementedError: If conversion is not implemented for the document type
+            ValueError: If document type is not supported
+            NotImplementedError: If conversion not implemented for document type
+
+        Example:
+            ```python
+            with fitz.open('document.pdf') as doc:
+                for image in ImageConverter.convert_to_images(doc, num_pages=10):
+                    # Process one image at a time
+                    process_image(image['data'])
+            ```
         """
         if isinstance(document, fitz.Document):
-            images = []
-            # Calculate the end page, ensuring we don't exceed document bounds
             end_page = min(start_page + num_pages, document.page_count)
-
-            # Estimate reasonable quality based on page count to prevent oversized requests
-            # Adjust quality down if we have many pages to process
             adjusted_quality = image_quality
-            # if num_pages > 50:
-            #     adjusted_quality = min(image_quality, 200)  # Medium quality for many pages
-            # if num_pages > 100:
-            #     adjusted_quality = min(image_quality, 150)  # Lower quality for very many pages
-
-            if adjusted_quality != image_quality:
-                logger.info(f"Adjusting image quality from {image_quality} to {adjusted_quality} DPI due to large page count ({num_pages})")
 
             for i in range(start_page, end_page):
                 try:
                     page = document.load_page(i)
 
                     # Calculate matrix for the specified DPI
-                    # 72 is the base DPI for PDF
                     zoom = adjusted_quality / 72
                     matrix = fitz.Matrix(zoom, zoom)
 
@@ -163,32 +168,25 @@ class ImageConverter:
 
                     # Convert to bytes
                     img_byte_arr = io.BytesIO()
-
-                    # Use compression to reduce file size (quality=85 provides good balance)
                     img.save(img_byte_arr, format='PNG', optimize=True)
-                    img_byte_arr = img_byte_arr.getvalue()
+                    img_data = img_byte_arr.getvalue()
 
-                    # Check image size and log warning if it's large
-                    img_size_mb = len(img_byte_arr) / (1024 * 1024)
+                    # Check image size and log warning if large
+                    img_size_mb = len(img_data) / (1024 * 1024)
                     if img_size_mb > 10:
                         logger.warning(f"Page {i+1} image is very large: {img_size_mb:.2f}MB")
                     elif img_size_mb > 5:
                         logger.debug(f"Page {i+1} image is large: {img_size_mb:.2f}MB")
 
-                    # Create image object in format expected by Vertex AI
-                    image_obj = {
-                        "data": img_byte_arr,
+                    # Yield image object
+                    yield {
+                        "data": img_data,
                         "_mime_type": "image/png"
                     }
-                    images.append(image_obj)
 
                 except Exception as e:
                     logger.error(f"Error converting page {i+1}: {str(e)}")
-                    # Continue with other pages if possible
+                    # Continue with other pages
 
-            if not images:
-                raise ValueError(f"Failed to convert any pages from document")
-
-            return images
-
-        raise NotImplementedError(f"Conversion not implemented for {type(document)}")
+        else:
+            raise NotImplementedError(f"Conversion not implemented for {type(document)}")

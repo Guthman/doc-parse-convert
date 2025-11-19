@@ -3,7 +3,7 @@ Factory classes for creating document processors.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union, BinaryIO
 
 from doc_parse_convert.config import ProcessingConfig, logger
 from doc_parse_convert.extraction.base import DocumentProcessor
@@ -17,11 +17,14 @@ class ProcessorFactory:
     """Factory for creating document processors."""
 
     @staticmethod
-    def create_processor(file_path: str, config: ProcessingConfig) -> DocumentProcessor:
-        """Create and initialize appropriate processor based on file extension.
+    def create_processor(
+        file_input: Union[str, Path, BinaryIO],
+        config: ProcessingConfig
+    ) -> DocumentProcessor:
+        """Create and initialize appropriate processor based on file type.
 
         Args:
-            file_path: Path to the document file
+            file_input: Path to document file OR file-like object
             config: Processing configuration
 
         Returns:
@@ -29,22 +32,29 @@ class ProcessorFactory:
 
         Raises:
             ValueError: If file format is not supported
+
+        Security Note:
+            If passing file paths, validate against your secure base
+            directory first. See io_helpers.py for examples.
         """
-        ext = Path(file_path).suffix.lower()
+        # Determine file type
+        if isinstance(file_input, (str, Path)):
+            ext = Path(file_input).suffix.lower()
+        elif hasattr(file_input, 'name'):
+            ext = Path(file_input.name).suffix.lower()
+        else:
+            raise ValueError("Cannot determine file type from file-like object without 'name' attribute")
+
         logger.debug(f"Creating processor for file type: {ext}")
 
         if ext == '.pdf':
-            # Import here to avoid circular import
             from doc_parse_convert.extraction.pdf import PDFProcessor
             processor = PDFProcessor(config)
-        # elif ext in ['.epub']:  # Future implementation
-        #     processor = EPUBProcessor(config)
         else:
             error_msg = f"Unsupported file format: {ext}"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        # Load the document
-        processor.load(file_path)
-        logger.info(f"Successfully created and loaded processor for {file_path}")
+        processor.load(file_input)
+        logger.info(f"Successfully created and loaded processor")
         return processor

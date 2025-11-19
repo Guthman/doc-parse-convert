@@ -26,22 +26,31 @@ logger.addHandler(console_handler)
 # Determine log directory
 log_dir = os.environ.get('DOC_PARSE_CONVERT_LOG_DIR')
 if not log_dir:
-    # Use a subdirectory in the system temp directory
     log_dir = os.path.join(tempfile.gettempdir(), 'doc_parse_convert_logs')
 
-# Create log directory if it doesn't exist
 os.makedirs(log_dir, exist_ok=True)
 
-# Create file handler which logs even debug messages
+# Create file handler with configurable log level
 log_file_path = os.path.join(log_dir, 'content_extraction.log')
 file_handler = logging.FileHandler(log_file_path)
-file_handler.setLevel(logging.DEBUG)
-file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s')
+
+# Get log level from environment, default to INFO for security
+log_level = os.environ.get('DOC_PARSE_LOG_LEVEL', 'INFO').upper()
+file_log_level = getattr(logging, log_level, logging.INFO)
+file_handler.setLevel(file_log_level)
+
+file_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+)
 file_handler.setFormatter(file_formatter)
 logger.addHandler(file_handler)
 
-# Log the file location for user awareness
+# Log configuration
 logger.info(f"Logging to file: {log_file_path}")
+logger.info(f"File log level: {logging.getLevelName(file_log_level)}")
+if file_log_level > logging.DEBUG:
+    logger.info("Set DOC_PARSE_LOG_LEVEL=DEBUG environment variable to enable debug logging")
+logger.warning("SECURITY: Debug logging may expose sensitive credentials - use only for development")
 
 # Safety settings for Gemini model
 GEMINI_SAFETY_CONFIG = {
@@ -51,6 +60,15 @@ GEMINI_SAFETY_CONFIG = {
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
 }
+
+# Allowed pandoc executables (whitelist)
+ALLOWED_PANDOC_EXECUTABLES = [
+    "pandoc",                                      # Unix-like systems (in PATH)
+    "/usr/bin/pandoc",                             # Linux
+    "/usr/local/bin/pandoc",                       # macOS
+    "C:\\Program Files\\Pandoc\\pandoc.exe",       # Windows
+    "C:\\Program Files (x86)\\Pandoc\\pandoc.exe"  # Windows 32-bit
+]
 
 
 class ExtractionStrategy(Enum):
@@ -82,3 +100,26 @@ class ProcessingConfig:
     # Processing configuration
     max_pages_for_preview: int = 200  # Default is to only look at first 200 pages
     image_quality: int = 300  # DPI for image conversion
+
+    # Image processing configuration
+    image_batch_size: int = 10  # Process images in batches of this size
+
+    # Pandoc configuration
+    pandoc_executable: str = "pandoc"  # Must be in ALLOWED_PANDOC_EXECUTABLES
+
+    # Subprocess configuration
+    subprocess_timeout: int = 300  # 5 minutes default
+
+    # AI retry configuration
+    retry_attempts: int = 10
+    retry_min_wait: int = 1  # seconds
+    retry_max_wait: int = 60  # seconds
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        # Validate pandoc executable
+        if self.pandoc_executable not in ALLOWED_PANDOC_EXECUTABLES:
+            raise ValueError(
+                f"Pandoc executable '{self.pandoc_executable}' is not allowed. "
+                f"Must be one of: {ALLOWED_PANDOC_EXECUTABLES}"
+            )

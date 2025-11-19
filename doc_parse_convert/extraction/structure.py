@@ -9,10 +9,13 @@ from typing import Any, Dict, Optional
 
 import xml.dom.minidom as minidom
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape
 
 from doc_parse_convert.config import logger, ExtractionStrategy
 from doc_parse_convert.models.document import DocumentSection
 from doc_parse_convert.utils.image import ImageConverter
+from doc_parse_convert.exceptions import AIExtractionError
+from doc_parse_convert.utils.validators import validate_page_range
 
 
 class DocumentStructureExtractor:
@@ -94,175 +97,20 @@ class DocumentStructureExtractor:
                 start_page=0,
                 image_quality=self.config.image_quality
             )
-
-            if not images:
-                error_msg = "No images were generated from document for AI processing"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-
-            logger.info(f"Successfully converted {len(images)} document pages to images")
+            logger.info(f"Successfully created image generator for all document pages")
         except Exception as e:
-            error_msg = f"Failed to convert document pages to images: {str(e)}"
+            error_msg = f"Failed to create image generator: {str(e)}"
             logger.error(error_msg)
             raise ValueError(error_msg) from e
 
-        # Import required modules from AI package
-        from doc_parse_convert.ai.prompts import get_structure_extraction_prompt
-        from doc_parse_convert.ai.schemas import get_structure_extraction_schema
-        from vertexai.generative_models import Part, GenerationConfig
-
-        # Prepare parts for the AI request
-        parts = []
-
-        # Limit number of images to process (preventing request size issues)
-        max_images = 1000
-        logger.info(f"Using {max_images} out of {len(images)} pages for structure extraction")
-
-        for i, img in enumerate(images[:max_images]):
-            try:
-                parts.append(Part.from_data(data=img["data"], mime_type=img["_mime_type"]))
-            except Exception as e:
-                logger.warning(f"Failed to process image {i + 1}: {str(e)}")
-
-        if not parts:
-            error_msg = "No valid image parts were created for AI processing"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        logger.debug(f"Created {len(parts)} image parts for AI processing")
-
-        # Add instruction text
+        # Use the AI client to extract structure from the image generator
         try:
-            parts.append(Part.from_text(get_structure_extraction_prompt()))
-        except Exception as e:
-            logger.error(f"Failed to create instruction text part: {str(e)}")
-            raise ValueError(f"Failed to create instruction text part: {str(e)}") from e
-
-        generation_config = GenerationConfig(
-            temperature=0.15  # Low temperature for more deterministic results
-        )
-
-        # Define response schema
-        response_schema = get_structure_extraction_schema()
-
-        # Call AI with retry
-        try:
-            logger.debug("Calling AI model to extract document structure")
-
-            # Try with minimal schema to avoid InvalidArgument errors
-            response = self.ai_client._call_model_with_retry(
-                parts,
-                generation_config,
-                response_mime_type="application/json",
-                response_schema=response_schema
-            )
-
-            # Parse the response
-            structure_data = json.loads(response.text)
-
-            # Process the structure data into our DocumentSection objects
-            root.title = structure_data.get("title", "Document Root")
-
-            # Helper function to recursively build structure
-            # This function now has to handle both flattened and nested data
-            def build_structure(section_data):
-                # Create a map of sections by level and start page for reconstruction
-                sections_by_id = {}
-                all_sections = []
-
-                # First pass: create all sections
-                for item in section_data:
-                    # Validate and adjust page numbers
-                    start_page = max(0, item.get("start", 1) - 1)  # Convert to 0-based
-                    end_page = item.get("end")
-                    if end_page is not None:
-                        end_page = max(start_page, end_page - 1)  # Convert to 0-based
-
-                    level = item.get("level", 1)
-
-                    # Create the section
-                    section = DocumentSection(
-                        title=item["title"],
-                        start_page=start_page,
-                        end_page=end_page,
-                        level=level
-                    )
-
-                    # Store in our maps
-                    section_id = f"{level}_{start_page}"
-                    sections_by_id[section_id] = section
-                    all_sections.append(section)
-
-                # Sort sections by level (ascending) and start page
-                all_sections.sort(key=lambda s: (s.level, s.start_page))
-
-                # Infer hierarchy - this is the magic to reconstruct the tree structure
-                top_level_sections = []
-                for section in all_sections:
-                    if section.level == 1:
-                        top_level_sections.append(section)
-                        continue
-
-                    # Find a parent for this section
-                    parent = None
-                    for potential_parent in reversed(all_sections):
-                        # Handle the case where either end_page is None
-                        if potential_parent.level < section.level and potential_parent.start_page <= section.start_page:
-                            # If either end_page is None, skip the end_page comparison
-                            if potential_parent.end_page is None or section.end_page is None:
-                                parent = potential_parent
-                                break
-                            # Only compare end_pages if both are not None
-                            elif potential_parent.end_page >= section.end_page:
-                                parent = potential_parent
-                                break
-
-                    if parent:
-                        parent.add_child(section)
-                    else:
-                        # If no parent found, add to top level
-                        top_level_sections.append(section)
-
-                return top_level_sections
-
-            # Build the complete structure
-            root.children = build_structure(structure_data.get("sections", []))
-
-            # Set any missing end_page values
-            # First, sort top-level sections by start page
-            root.children.sort(key=lambda s: s.start_page)
-
-            for i, section in enumerate(root.children):
-                if section.end_page is None:
-                    if i < len(root.children) - 1:
-                        section.end_page = root.children[i + 1].start_page - 1
-                    else:
-                        section.end_page = self.doc.page_count - 1
-
+            chapters = self.ai_client.extract_structure_from_images(images)
+            root.children = chapters
             logger.info(f"Successfully extracted document structure with {len(root.children)} top-level sections")
             return root
-
-        except Exception as e:
+        except AIExtractionError as e:
             logger.error(f"Error in AI structure extraction: {str(e)}")
-            # Additional diagnostic information
-            logger.error(f"Document has {self.doc.page_count} pages")
-            logger.error(f"Using model: {self.config.gemini_model_name}")
-            logger.debug(f"Response schema: {json.dumps(response_schema, indent=2)}")
-
-            # Check for specific error types
-            error_class = e.__class__.__name__
-            if 'InvalidArgument' in error_class:
-                logger.error("The API request contains an invalid argument. This could be due to:")
-                logger.error("- Images too large or too many images in the request")
-                logger.error("- Malformed request structure or invalid parameters")
-                logger.error("- Model limitations or incompatible response schema")
-                logger.error("Attempt to use a smaller subset of pages or simplify the schema further")
-
-                # Save debug information if enabled
-                debug_dir = os.environ.get("AI_DEBUG_DIR")
-                if not debug_dir:
-                    logger.info("Set AI_DEBUG_DIR environment variable to save debug information")
-
             raise
 
     def _extract_structure_with_native_enhancement(self, root: DocumentSection) -> DocumentSection:
@@ -277,20 +125,41 @@ class DocumentStructureExtractor:
         """
         logger.info("Extracting and enhancing document structure using native methods")
 
-        # Get native table of contents
-        toc = self.doc.get_toc()
+        # Get native table of contents with extended info (includes Y-positions)
+        toc_extended = self.doc.get_toc(simple=False)
 
-        if not toc:
+        if not toc_extended:
             logger.warning("No native TOC found, attempting to infer structure from document")
             return self._infer_structure_from_document(root)
 
         # Convert TOC to DocumentSection objects
         sections_by_level = {}  # Dictionary to keep track of the latest section at each level
+        all_sections_list = []  # Track all sections with their Y-positions
 
         # First pass: create all sections
-        for level, title, page in toc:
+        for entry in toc_extended:
+            level = entry[0]
+            title = entry[1]
+            page = entry[2]
+            dest_dict = entry[3] if len(entry) > 3 else {}
+
             # Convert to 0-based page index
             page_idx = page - 1
+
+            # Extract Y-position from destination info
+            y_position = None
+            if 'to' in dest_dict and hasattr(dest_dict['to'], 'y'):
+                y_position = dest_dict['to'].y
+            elif 'dest' in dest_dict:
+                dest_str = dest_dict['dest']
+                if '/FitH' in dest_str:
+                    match = re.search(r'/FitH\s+([\d.]+)', dest_str)
+                    if match:
+                        y_position = float(match.group(1))
+                elif '/XYZ' in dest_str:
+                    match = re.search(r'/XYZ\s+[\d.]+\s+([\d.]+)', dest_str)
+                    if match:
+                        y_position = float(match.group(1))
 
             section = DocumentSection(
                 title=title,
@@ -298,6 +167,9 @@ class DocumentStructureExtractor:
                 level=level,
                 logical_start_page=page  # Store the logical page number as well
             )
+
+            # Store Y-position for later use in determining end pages
+            all_sections_list.append((section, y_position))
 
             # Find parent and add as child
             if level > 1 and level - 1 in sections_by_level:
@@ -311,6 +183,13 @@ class DocumentStructureExtractor:
             sections_by_level[level] = section
 
         # Second pass: set end pages
+        # Create a mapping from section id to Y-position
+        section_y_positions = {id(section): y_pos for section, y_pos in all_sections_list}
+
+        # Get page height for Y-position calculations (PDF coords: 0,0 at bottom-left)
+        # We'll use the first page as reference
+        page_height = self.doc[0].rect.height if self.doc.page_count > 0 else 792  # Default letter size
+
         # Sort all sections by start page for processing
         all_sections = []
 
@@ -329,9 +208,26 @@ class DocumentStructureExtractor:
             # Find the next section at same or higher level that starts after this one
             for j in range(i + 1, len(all_sections)):
                 next_section = all_sections[j]
-                if next_section.level <= section.level and next_section.start_page > section.start_page:
-                    section.end_page = next_section.start_page - 1
-                    break
+                if next_section.level <= section.level and next_section.start_page >= section.start_page:
+                    if next_section.start_page > section.start_page:
+                        # Next section starts on a different page
+                        # Check if next section has Y-offset (not at top of page)
+                        next_y = section_y_positions.get(id(next_section))
+
+                        # In PDF coordinates, Y increases upward from bottom
+                        # A section at top of page would have Y near page_height
+                        # If Y is significantly less than page_height, there's content above it
+                        if next_y is not None and next_y < (page_height - 50):
+                            # Next section starts partway down the page
+                            # Include that page in current section
+                            section.end_page = next_section.start_page
+                        else:
+                            # Next section starts at top of page
+                            section.end_page = next_section.start_page - 1
+                        break
+                    elif next_section.start_page == section.start_page:
+                        # Same page - check Y-positions to determine order
+                        continue
 
             # If no next section found, end at document end
             if section.end_page is None:
@@ -381,7 +277,7 @@ class DocumentStructureExtractor:
                         # Heuristic: potential headings are larger text
                         if len(text) > 0 and len(text) < 100 and font_size > 12:
                             # Check if it looks like a heading (e.g., "Chapter 1", "1. Introduction")
-                            if re.match(r"^(chapter|section|part|appendix|\d+\.)\s+\w+", text.lower()):
+                            if re.match(r"^(chapter|section|part|appendix|\d+\.)\s+\S+", text.lower()):
                                 # Determine level based on font size (larger = higher level)
                                 level = 1 if font_size > 16 else 2
 
@@ -444,7 +340,7 @@ class DocumentStructureExtractor:
 
             # Analyze the first page of the section to extract more information
             page = self.doc[section.start_page]
-            text = page.get_text(0, 500)  # Get first 500 characters
+            text = page.get_text()[:500]  # Get first 500 characters
 
             # Try to identify section type and identifier
             section_type = None
@@ -505,8 +401,11 @@ class DocumentStructureExtractor:
             # Simple XML conversion
 
             def section_to_xml(section, parent_elem):
+                """Convert a DocumentSection to XML element with proper escaping."""
                 section_elem = ET.SubElement(parent_elem, "section")
-                section_elem.set("title", section.title)
+
+                # Escape all user-controlled content
+                section_elem.set("title", escape(section.title))
                 section_elem.set("start_page", str(section.start_page))
                 section_elem.set("end_page", str(section.end_page) if section.end_page is not None else "")
                 section_elem.set("level", str(section.level))
@@ -516,9 +415,9 @@ class DocumentStructureExtractor:
                 if section.logical_end_page is not None:
                     section_elem.set("logical_end_page", str(section.logical_end_page))
                 if section.section_type:
-                    section_elem.set("section_type", section.section_type)
+                    section_elem.set("section_type", escape(section.section_type))
                 if section.identifier:
-                    section_elem.set("identifier", section.identifier)
+                    section_elem.set("identifier", escape(section.identifier))
 
                 for child in section.children:
                     section_to_xml(child, section_elem)
@@ -561,6 +460,13 @@ class DocumentStructureExtractor:
             # Extract text from the section's page range
             text = ""
             if section.start_page is not None and section.end_page is not None:
+                # ADD VALIDATION
+                validate_page_range(
+                    section.start_page,
+                    section.end_page + 1,  # +1 because range is inclusive
+                    self.doc.page_count
+                )
+
                 for page_idx in range(section.start_page, section.end_page + 1):
                     if page_idx < self.doc.page_count:
                         page = self.doc[page_idx]

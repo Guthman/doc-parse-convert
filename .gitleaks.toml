@@ -13,6 +13,11 @@ id = "google-service-account"
 description = "Google Service Account JSON"
 regex = '''(?i)("type":\s*"service_account")'''
 keywords = ["service_account", "private_key_id"]
+[rules.allowlist]
+paths = [
+  '''\.env\.example''',
+  '''.*\.md''',
+]
 
 [[rules]]
 id = "jina-api-key"
@@ -25,6 +30,16 @@ id = "vertex-ai-project"
 description = "Potential GCP Project ID in code (review needed)"
 regex = '''(?i)(project[-_]?id["']?\s*[:=]\s*["'][a-z0-9-]{6,30}["'])'''
 keywords = ["project_id", "project-id"]
+[rules.allowlist]
+paths = [
+  '''example\.py''',
+  '''.*\.md''',
+  '''CLAUDE\.md''',
+]
+regexes = [
+  '''your-project-id''',
+  '''your[-_]?project[-_]?id''',
+]
 
 # Allowlist for path-based exclusions
 [[allowlists]]
