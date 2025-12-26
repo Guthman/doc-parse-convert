@@ -52,6 +52,12 @@ class ExtractedImageData(BaseModel):
         None,
         description="Structured data extracted from the image. Present for TABLE, CHART_OR_GRAPH, and COMPOUND types."
     )
+    confidence: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Extraction quality score 0.0-1.0. Low values indicate blurry images or uncertain data."
+    )
 
 
 # Update forward references for recursive model
@@ -75,6 +81,10 @@ def get_image_extraction_schema() -> dict:
             "description": {
                 "type": "STRING",
                 "description": "A brief, one-sentence description of the overall image."
+            },
+            "confidence": {
+                "type": "NUMBER",
+                "description": "Extraction quality 0.0-1.0. Use 1.0 for clear images, 0.5 for partially readable, 0.0 for blurry/illegible."
             },
             "content": {
                 "type": "OBJECT",

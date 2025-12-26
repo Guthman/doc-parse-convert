@@ -75,7 +75,8 @@ class ImageContentExtractor:
     def extract(
             self,
             image: Union[bytes, str, Path],
-            mime_type: str = None
+            mime_type: str = None,
+            metadata: dict = None
     ) -> ExtractedImageData:
         """
         Analyze an image and extract structured content.
@@ -87,6 +88,8 @@ class ImageContentExtractor:
                 - Path: Path object to an image file
             mime_type: MIME type of the image. Required for bytes/base64 input,
                       auto-detected for file paths.
+            metadata: Optional dictionary containing contextual information about the image.
+                     Can include fields like 'chapter', 'page_number', 'document_title', etc.
 
         Returns:
             ExtractedImageData with classification and extracted content
@@ -100,12 +103,14 @@ class ImageContentExtractor:
 
         logger.info(f"Extracting content from image ({detected_mime_type})")
         logger.debug(f"Image size: {len(image_bytes)} bytes")
+        if metadata:
+            logger.debug(f"Metadata: {metadata}")
 
         # Create image part for Gemini
         image_part = Part.from_data(data=image_bytes, mime_type=detected_mime_type)
 
         # Get prompt and schema
-        prompt = get_image_extraction_prompt()
+        prompt = get_image_extraction_prompt(metadata)
         response_schema = get_image_extraction_schema()
 
         # Create parts list
@@ -238,6 +243,7 @@ class ImageContentExtractor:
         """
         image_type = ImageType(response_data["image_type"])
         description = response_data["description"]
+        confidence = response_data.get("confidence")
         content_data = response_data.get("content")
 
         content = None
@@ -261,5 +267,6 @@ class ImageContentExtractor:
         return ExtractedImageData(
             image_type=image_type,
             description=description,
-            content=content
+            content=content,
+            confidence=confidence
         )
